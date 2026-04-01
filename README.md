@@ -73,7 +73,7 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Rea
 
 ## Project Links
 
-- Official site: [toolkit.team-nocturnal.com](https://toolkit.team-nocturnal.com)
+- Official site: [toolkit.team-nocturnal.com](http://toolkit.team-nocturnal.com)
 
 ## Build From Source
 
