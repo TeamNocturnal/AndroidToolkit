@@ -14,6 +14,14 @@ dist-ssr
 
 # Build output (also covered by src-tauri/.gitignore but listed here for OneDrive awareness)
 src-tauri/target/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/.idea/
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/**/.kotlin/
+
+# macOS Finder noise
+.DS_Store
+**/.DS_Store
 
 # OneDrive conflict copies (created when Mac and Windows edit simultaneously)
 *MacBook Pro*

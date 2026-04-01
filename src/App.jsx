@@ -95,18 +95,18 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'DEVICES',
+    items: [
+      { id: 'devices', icon: '📱', label: 'Connected Devices' },
+    ],
+  },
+  {
     label: 'APPS',
     items: [
       { id: 'install', icon: '📦', label: 'Install APK'  },
       { id: 'search',  icon: '🔍', label: 'Search APKs'  },
       { id: 'stores',  icon: '🏪', label: 'App Stores'   },
       { id: 'manage',  icon: '🗂️', label: 'Manage Apps'  },
-    ],
-  },
-  {
-    label: 'DEVICES',
-    items: [
-      { id: 'devices', icon: '📱', label: 'Connected Devices' },
     ],
   },
   {
@@ -10212,7 +10212,7 @@ export default function App() {
   const [selected, setSelected]   = useState(null)
   const [props, setProps]         = useState(null)
   const [loading, setLoading]     = useState(false)
-  const [activePanel, setActivePanel] = useState('devices')
+  const [activePanel, setActivePanel] = useState('getting-started')
   const [scanning, setScanning]   = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'system')
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('nt_welcomed'))
