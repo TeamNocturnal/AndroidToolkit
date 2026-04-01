@@ -105,11 +105,16 @@ npm install
 
 This repo should stay in sync through `GitHub`, not through `OneDrive` or another live-sync folder.
 
-### Set your Git identity
+### Clone the repo
 
 ```bash
-git config user.name "XsMagical"
-git config user.email "XsMagical@Team-Nocturnal.com"
+git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
+cd Nocturnal-Toolkit
+```
+
+### Check your remote
+
+```bash
 git remote -v
 ```
 
@@ -117,6 +122,15 @@ The main remote should point to:
 
 ```bash
 https://github.com/XsMagical/Nocturnal-Toolkit.git
+```
+
+### Optional Git identity setup
+
+If you have not set your Git name and email on this machine yet, configure them with your own details:
+
+```bash
+git config user.name "Your Name"
+git config user.email "you@example.com"
 ```
 
 ### Pull the latest changes
