@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/adb",
+      "binaries/fastboot"
+    ]
+  }
+}

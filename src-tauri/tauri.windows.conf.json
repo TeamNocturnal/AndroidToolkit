@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/adb",
+      "binaries/fastboot"
+    ],
+    "resources": {
+      "binaries/AdbWinApi.dll": "AdbWinApi.dll",
+      "binaries/AdbWinUsbApi.dll": "AdbWinUsbApi.dll"
+    }
+  }
+}
