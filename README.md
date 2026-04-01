@@ -1,12 +1,12 @@
-# TN Toolkit
+# Android Toolkit by Team Nocturnal
 
 Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workflows, app management, TV tools, Quest tools, maintenance, backups, and power-user Android workflows from a cleaner UI.
 
 [Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · `macOS` · `Windows` · `Android`
 
-## What TN Toolkit Is Now
+## What Android Toolkit by Team Nocturnal Is Now
 
-TN Toolkit has moved far beyond the original "APK installer + ADB helper" idea.
+Android Toolkit by Team Nocturnal has moved far beyond the original "APK installer + ADB helper" idea.
 
 The current project is a cross-platform toolkit built with `Tauri 2 + Rust + React` that gives you:
 
