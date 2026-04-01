@@ -83,14 +83,14 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Rea
 - Cloud sync can corrupt Git metadata, duplicate build files, and cause huge storage churn with `target` and Android build output.
 - Use `GitHub` and regular `git pull` / `git push` for sync and history instead of a file-sync service.
 - Good local paths:
-  - macOS: `~/Projects/Nocturnal-Toolkit`
-  - Windows: `C:\Projects\Nocturnal-Toolkit`
+  - macOS: `~/Projects/AndroidToolkit`
+  - Windows: `C:\Projects\AndroidToolkit`
 
 ### 1. Clone The Repo
 
 ```bash
-git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
-cd Nocturnal-Toolkit
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
 git config user.name "XsMagical"
 git config user.email "XsMagical@Team-Nocturnal.com"
 ```
@@ -108,8 +108,8 @@ This repo should stay in sync through `GitHub`, not through `OneDrive` or anothe
 ### Clone the repo
 
 ```bash
-git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
-cd Nocturnal-Toolkit
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
 ```
 
 ### Check your remote
@@ -121,7 +121,7 @@ git remote -v
 The main remote should point to:
 
 ```bash
-https://github.com/XsMagical/Nocturnal-Toolkit.git
+https://github.com/TeamNocturnal/AndroidToolkit.git
 ```
 
 ### Optional Git identity setup
@@ -262,8 +262,8 @@ Recommended installs:
 ```powershell
 mkdir C:\Projects
 cd C:\Projects
-git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
-cd Nocturnal-Toolkit
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
 npm install
 ```
 
