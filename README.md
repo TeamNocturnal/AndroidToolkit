@@ -76,26 +76,180 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Rea
 - Official site: [toolkit.team-nocturnal.com](https://toolkit.team-nocturnal.com)
 - Forum thread: [forums.wbodytech.com](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/)
 
-## Local Development
+## Build From Source
 
-### Frontend
+### Before You Start
+
+- Keep this repo in a normal local folder, not inside `OneDrive`, `iCloud Drive`, `Dropbox`, or other live-sync folders.
+- Cloud sync can corrupt Git metadata, duplicate build files, and cause huge storage churn with `target` and Android build output.
+- Good local paths:
+  - macOS: `~/Projects/Nocturnal-Toolkit`
+  - Windows: `C:\Projects\Nocturnal-Toolkit`
+
+### 1. Clone The Repo
+
+```bash
+git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
+cd Nocturnal-Toolkit
+```
+
+### 2. Install JavaScript Dependencies
 
 ```bash
 npm install
-npm run dev
 ```
 
-### Desktop App
+## macOS Setup
+
+### Requirements
+
+- `Node.js` + `npm`
+- `Rust`
+- `Xcode Command Line Tools`
+
+Install the common prerequisites:
+
+```bash
+xcode-select --install
+brew install node
+curl https://sh.rustup.rs -sSf | sh
+```
+
+Restart your terminal after installing Rust, or run:
+
+```bash
+source "$HOME/.cargo/env"
+```
+
+### Run In Dev Mode
 
 ```bash
 npm run tauri dev
 ```
 
-### Production Build
+### Build macOS App
 
 ```bash
 npm run tauri build
 ```
+
+Expected output:
+
+- `src-tauri/target/release/bundle/macos/TN Toolkit.app`
+- `src-tauri/target/release/bundle/dmg/TN Toolkit_2.0.0-beta.6_aarch64.dmg`
+
+### Notes For macOS
+
+- Unsigned DMGs may show Gatekeeper warnings until proper signing/notarization is configured.
+- If you want signed distribution builds, set up a valid Apple `Developer ID Application` certificate and notarization credentials.
+
+## Windows Setup
+
+### Requirements
+
+- `Node.js` + `npm`
+- `Rust`
+- `Visual Studio Build Tools` with C++ workload
+- `WebView2` runtime
+
+Recommended installs:
+
+- Node.js: [https://nodejs.org](https://nodejs.org)
+- Rust: [https://rustup.rs](https://rustup.rs)
+- Visual Studio Build Tools: [https://visualstudio.microsoft.com/visual-cpp-build-tools/](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- WebView2: [https://developer.microsoft.com/en-us/microsoft-edge/webview2/](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+
+### Recommended Local Path
+
+```powershell
+mkdir C:\Projects
+cd C:\Projects
+git clone https://github.com/XsMagical/Nocturnal-Toolkit.git
+cd Nocturnal-Toolkit
+npm install
+```
+
+### Run In Dev Mode
+
+```powershell
+npm run tauri dev
+```
+
+### Build Windows App
+
+```powershell
+npm run tauri build
+```
+
+### Notes For Windows
+
+- If you plan to build Android on Windows too, keep your Android SDK / NDK / Java paths configured in your environment first.
+- The older environment notes in [WINDOWS_ENV.md](/Users/xs/Library/CloudStorage/OneDrive-Personal/Team%20Nocturnal/Projects/Nocturnal%20Toolkit/WINDOWS_ENV.md) are still useful as a machine-specific reference.
+
+## Android Build Notes
+
+Android builds are optional and are separate from the desktop app.
+
+You will need:
+
+- Android Studio or command line Android SDK tools
+- Android SDK
+- Android NDK
+- Java / JDK
+
+Typical Android environment variables:
+
+```bash
+ANDROID_HOME=/path/to/android/sdk
+ANDROID_SDK_ROOT=/path/to/android/sdk
+NDK_HOME=/path/to/android/sdk/ndk/<version>
+JAVA_HOME=/path/to/jdk
+```
+
+### Build Android
+
+```bash
+npm run tauri android build
+```
+
+## Common Commands
+
+### Frontend only
+
+```bash
+npm run dev
+```
+
+### Desktop dev app
+
+```bash
+npm run tauri dev
+```
+
+### Desktop production build
+
+```bash
+npm run tauri build
+```
+
+### Android production build
+
+```bash
+npm run tauri android build
+```
+
+## Cleaning Build Output
+
+Build output can get very large. These folders are safe to remove before rebuilding:
+
+```bash
+rm -rf dist
+rm -rf src-tauri/target
+rm -rf src-tauri/gen/android/app/build
+rm -rf src-tauri/gen/android/build
+```
+
+On Windows, remove the same folders manually or with PowerShell.
 
 ## Backlog
 
