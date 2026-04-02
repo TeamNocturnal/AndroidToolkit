@@ -14,7 +14,6 @@
 // attributes control which code path is compiled for each target.
 // ─────────────────────────────────────────────────────────────────────────────
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use std::sync::Mutex;
 use tauri::Emitter;
 #[cfg(target_os = "android")]
@@ -1667,11 +1666,21 @@ async fn capture_screen_frame(
             }));
         }
 
-        let encoded = BASE64_STANDARD.encode(&output.stdout);
+        let sanitized = serial
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' { ch } else { '_' })
+            .collect::<String>();
+        let frame_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+        let path = std::env::temp_dir().join(format!("ntk_live_frame_{sanitized}_{frame_id}.png"));
+        std::fs::write(&path, &output.stdout).map_err(|e| e.to_string())?;
+
         Ok(serde_json::json!({
             "ok": true,
             "mime": "image/png",
-            "data_url": format!("data:image/png;base64,{encoded}")
+            "path": path.to_string_lossy().to_string()
         }))
     }
 }

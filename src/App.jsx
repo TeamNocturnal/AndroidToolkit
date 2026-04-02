@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open as openDialog, confirm as dialogConfirm } from '@tauri-apps/plugin-dialog'
 import { open as openUrl } from '@tauri-apps/plugin-shell'
@@ -6176,6 +6176,12 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     return runner()
   }
 
+  async function ensureDeviceAwake() {
+    if (!serial) return
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'] })
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'wm', 'dismiss-keyguard'] }).catch(() => null)
+  }
+
   function summarizeCleanupResult(title, result) {
     const trimmed = String(result || '').trim()
     if (!trimmed) return `${title} finished successfully.`
@@ -6254,6 +6260,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     append('$ Capture screenshot')
     setRunning(true)
     try {
+      await ensureDeviceAwake()
       await invoke('run_adb', { args: ['-s', serial, 'shell', 'screencap', '/sdcard/ntk_capture.png'] })
       const dl = await downloadDir()
       const dest = await pathJoin(dl, `ntk_screenshot_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.png`)
@@ -6271,6 +6278,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     append('$ Record 10 second screen capture')
     setRunning(true)
     try {
+      await ensureDeviceAwake()
       await invoke('run_adb', { args: ['-s', serial, 'shell', 'screenrecord', '--time-limit', '10', '/sdcard/ntk_capture.mp4'] })
       const dl = await downloadDir()
       const dest = await pathJoin(dl, `ntk_screenrecord_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.mp4`)
@@ -6297,11 +6305,12 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     mirrorBusyRef.current = true
     setLiveViewStatus('Streaming live device screen…')
     try {
+      await ensureDeviceAwake()
       const res = await invoke('capture_screen_frame', { serial })
-      if (!res?.ok || !res?.data_url) {
+      if (!res?.ok || !res?.path) {
         throw new Error(res?.stderr || 'Failed to capture live frame.')
       }
-      const src = res.data_url
+      const src = `${convertFileSrc(res.path)}?t=${Date.now()}`
       setLiveViewSrc(src)
       setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
       updateMirrorPopup(src, `Connected to ${device?.model || serial}`)
@@ -6512,8 +6521,8 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
               <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
               <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('settings put global stay_on_while_plugged_in 3', 'Keep screen awake while plugged in')}>Stay Awake On</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('settings put global stay_on_while_plugged_in 0', 'Restore normal sleep behavior')}>Stay Awake Off</button>
+              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
+              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
               <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
               <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
             </div>

@@ -11,3 +11,11 @@ This document tracks focused follow-up work that should live outside the main RE
 - Verify bundled Linux `adb` and `fastboot` compatibility on the supported distros.
 - Polish Linux-specific desktop UX gaps such as folder reveal behavior and any path or shell edge cases.
 - Add Linux build and packaging coverage to CI / release automation once the distro support is validated.
+
+## Help & Docs
+
+- After the Help & Docs platform design is finalized, add OS gating so each platform setup card only shows on the OS the app is currently running on. Leave all platform cards visible during the current design pass.
+
+## Maintenance
+
+- Fix live preview in Device Companion so the in-app stream renders correctly instead of showing the broken-image placeholder, and replace the blocked browser popup path with a real Tauri popout window. Current app output: `Unable to open live-view popout window.`
