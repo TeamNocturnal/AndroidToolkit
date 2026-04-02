@@ -207,6 +207,12 @@ Do not remove the repo itself, `.git`, or the committed Android project files un
 - `Rust`
 - `Xcode Command Line Tools`
 
+Official links:
+
+- Node.js: [https://nodejs.org](https://nodejs.org)
+- Rust / rustup: [https://rustup.rs](https://rustup.rs)
+- Xcode Command Line Tools: [https://developer.apple.com/xcode/resources/](https://developer.apple.com/xcode/resources/)
+
 Install the common prerequisites:
 
 ```bash
@@ -296,6 +302,13 @@ Linux desktop builds are now supported for `x86_64` systems, including `Debian`,
 - `Rust`
 - Tauri Linux system dependencies
 - `xdg-open` support from your desktop environment for reveal-in-folder actions
+
+Official links:
+
+- Node.js: [https://nodejs.org](https://nodejs.org)
+- Rust / rustup: [https://rustup.rs](https://rustup.rs)
+- Tauri Linux prerequisites: [https://v2.tauri.app/start/prerequisites/](https://v2.tauri.app/start/prerequisites/)
+- Android SDK Platform-Tools: [https://developer.android.com/tools/releases/platform-tools](https://developer.android.com/tools/releases/platform-tools)
 
 Install the common app dependencies first, then the distro-specific packages below.
 
@@ -423,6 +436,7 @@ Depending on the host distro and installed tooling, Tauri may emit one or more L
 
 - This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
 - Debian, Fedora, Arch Linux, and openSUSE builds should use the native package manager dependencies above instead of copying over macOS or Windows setup steps.
+- Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 ## Android Build Notes

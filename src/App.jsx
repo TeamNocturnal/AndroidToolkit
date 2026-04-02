@@ -76,6 +76,82 @@ function parseResolution(stdout) {
   return m ? `${m[1]} × ${m[2]}` : null
 }
 
+function parseLinuxOsRelease(text) {
+  const values = {}
+  String(text || '').split('\n').forEach(line => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) return
+    const idx = trimmed.indexOf('=')
+    if (idx === -1) return
+    const key = trimmed.slice(0, idx)
+    let value = trimmed.slice(idx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    values[key] = value
+  })
+  return values
+}
+
+function linuxUsbSetupForDistro(osRelease) {
+  const id = String(osRelease.ID || '').toLowerCase()
+  const like = String(osRelease.ID_LIKE || '').toLowerCase()
+  const name = osRelease.PRETTY_NAME || osRelease.NAME || 'Linux'
+
+  if (id === 'debian' || like.includes('debian')) {
+    return {
+      name,
+      command: `sudo apt update
+sudo apt install android-sdk-platform-tools-common
+sudo udevadm control --reload-rules
+sudo udevadm trigger`,
+      note: 'Debian provides Android USB udev rules through android-sdk-platform-tools-common.',
+    }
+  }
+
+  if (id === 'arch' || like.includes('arch')) {
+    return {
+      name,
+      command: `sudo pacman -S --needed android-udev
+sudo udevadm control --reload-rules
+sudo udevadm trigger`,
+      note: 'Arch Linux provides Android USB udev rules through android-udev.',
+    }
+  }
+
+  if (id === 'fedora' || like.includes('fedora') || like.includes('rhel')) {
+    return {
+      name,
+      command: `sudo curl -L https://raw.githubusercontent.com/M0Rf30/android-udev-rules/master/51-android.rules -o /etc/udev/rules.d/51-android.rules
+sudo chmod a+r /etc/udev/rules.d/51-android.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger`,
+      note: 'Fedora commonly needs a local Android udev rules file installed with admin privileges before USB adb or fastboot will work.',
+    }
+  }
+
+  if (id.includes('opensuse') || like.includes('suse')) {
+    return {
+      name,
+      command: `sudo zypper install android-udev-rules || true
+sudo curl -L https://raw.githubusercontent.com/M0Rf30/android-udev-rules/master/51-android.rules -o /etc/udev/rules.d/51-android.rules
+sudo chmod a+r /etc/udev/rules.d/51-android.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger`,
+      note: 'openSUSE package availability varies by release, so the fallback installs the maintained Android udev rules file directly.',
+    }
+  }
+
+  return {
+    name,
+    command: `sudo curl -L https://raw.githubusercontent.com/M0Rf30/android-udev-rules/master/51-android.rules -o /etc/udev/rules.d/51-android.rules
+sudo chmod a+r /etc/udev/rules.d/51-android.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger`,
+    note: 'Most Linux USB adb and fastboot failures come from missing udev rules. This generic fix works on many distros.',
+  }
+}
+
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const STATUS = {
@@ -166,6 +242,127 @@ const MAC_HIDDEN_PANELS = new Set(['drivers'])
 const ANDROID_EXTRA_NAV_ITEMS = [
   { id: 'maintenance', icon: '🧹', label: 'Maintenance' },
 ]
+
+function LinuxUsbHelperCard({ devices, ready, onOpenWireless }) {
+  const [linuxSetup, setLinuxSetup] = useState(() => linuxUsbSetupForDistro({}))
+  const [diag, setDiag] = useState('')
+  const [checking, setChecking] = useState(false)
+  const usbDevices = devices.filter(d => !String(d.serial || '').includes(':'))
+  const visible = ready && usbDevices.length === 0
+
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    readTextFile('/etc/os-release')
+      .then(text => {
+        if (cancelled) return
+        setLinuxSetup(linuxUsbSetupForDistro(parseLinuxOsRelease(text)))
+      })
+      .catch(() => {
+        if (!cancelled) setLinuxSetup(linuxUsbSetupForDistro({}))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [visible])
+
+  const runDiagnostics = useCallback(async () => {
+    setChecking(true)
+    try {
+      const [adbStart, adbDevices, fastbootDevices] = await Promise.all([
+        invoke('run_adb', { args: ['start-server'] }),
+        invoke('run_adb', { args: ['devices'] }),
+        invoke('run_fastboot', { args: ['devices'] }),
+      ])
+      const blocks = [
+        `$ adb start-server\n${[adbStart.stdout, adbStart.stderr].filter(Boolean).join('\n').trim() || 'ADB server started.'}`,
+        `$ adb devices\n${[adbDevices.stdout, adbDevices.stderr].filter(Boolean).join('\n').trim() || 'No output'}`,
+        `$ fastboot devices\n${[fastbootDevices.stdout, fastbootDevices.stderr].filter(Boolean).join('\n').trim() || 'No output'}`,
+      ]
+      setDiag(blocks.join('\n\n'))
+    } catch (e) {
+      setDiag(`Diagnostics failed.\n\n${String(e)}`)
+    }
+    setChecking(false)
+  }, [])
+
+  useEffect(() => {
+    if (visible && !diag && !checking) runDiagnostics()
+  }, [visible, diag, checking, runDiagnostics])
+
+  if (!visible) return null
+
+  async function copyFixCommand() {
+    await navigator.clipboard.writeText(linuxSetup.command)
+  }
+
+  async function copyDiagnostics() {
+    await navigator.clipboard.writeText(diag || 'No diagnostics collected yet.')
+  }
+
+  return (
+    <div style={{
+      margin: '0 16px 14px',
+      padding: '14px 14px 12px',
+      borderRadius: 'var(--radius-md)',
+      background: 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(20,184,166,0.07))',
+      border: '1px solid rgba(245,158,11,0.25)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-yellow)' }}>
+          Linux USB Access
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+          {linuxSetup.name}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
+        Android Toolkit already bundles <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>adb</code> and <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>fastboot</code> on Linux, but USB access still needs an admin-approved <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>udev</code> rule. If your phone is connected over USB and still does not appear, run the fix below, reconnect the cable, then retry detection.
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 10 }}>
+        {linuxSetup.note}
+      </div>
+      <pre style={{
+        margin: '0 0 10px',
+        padding: '10px 12px',
+        borderRadius: 'var(--radius-sm)',
+        background: 'rgba(0,0,0,0.18)',
+        border: '1px solid var(--border-subtle)',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        fontFamily: "'JetBrains Mono','Courier New',monospace",
+        fontSize: 11,
+        color: 'var(--text-primary)',
+        lineHeight: 1.55,
+      }}>
+        {linuxSetup.command}
+      </pre>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: diag ? 10 : 0 }}>
+        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyFixCommand}>Copy Fix Command</button>
+        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} disabled={checking} onClick={runDiagnostics}>{checking ? 'Checking…' : 'Retry Detection'}</button>
+        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyDiagnostics}>Copy Diagnostics</button>
+        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={onOpenWireless}>Use Wireless ADB Instead</button>
+      </div>
+      {diag && (
+        <pre style={{
+          margin: 0,
+          padding: '10px 12px',
+          borderRadius: 'var(--radius-sm)',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid var(--border-subtle)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          fontFamily: "'JetBrains Mono','Courier New',monospace",
+          fontSize: 11,
+          color: 'var(--text-secondary)',
+          lineHeight: 1.55,
+        }}>
+          {diag}
+        </pre>
+      )}
+    </div>
+  )
+}
 
 // ── Quest Tools data ──────────────────────────────────────────────────────────
 
@@ -6140,6 +6337,13 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
   return (
     <div className="devices-panel">
       <div className="devices-list">
+        {platform === 'linux' && (
+          <LinuxUsbHelperCard
+            devices={devices}
+            ready={ready}
+            onOpenWireless={() => onPairSectionToggle?.(true)}
+          />
+        )}
 
         {/* SAVED DEVICES */}
         <div>
