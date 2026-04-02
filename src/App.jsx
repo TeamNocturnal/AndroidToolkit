@@ -4714,6 +4714,122 @@ const HELP_CONNECTION_CARDS = [
   },
 ]
 
+function PlatformSetupCard({ title, kicker, body, accent, current, steps = [], actions = [], command = '', details = '', children }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)',
+      border: `1px solid ${current ? accent : 'var(--border)'}`,
+      borderRadius: 'var(--radius-md)',
+      padding: '14px 16px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+            {kicker}
+          </div>
+          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>
+            {title}
+          </div>
+        </div>
+        {current && (
+          <div style={{
+            padding: '3px 8px',
+            borderRadius: 999,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--border-subtle)',
+            fontSize: 10,
+            color: 'var(--text-muted)',
+          }}>
+            Current platform
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: steps.length ? 10 : 12 }}>
+        {body}
+      </div>
+      {steps.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 10 }}>
+          {steps.map((step, index) => (
+            <div key={`${title}-${index}`} style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '10px 12px',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+                {index + 1}. {step.title}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {step.body}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {children}
+      {children && (actions.length > 0 || command || details) && <div style={{ height: 10 }} />}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {actions.map(action => (
+          <button
+            key={action.label}
+            className="btn-ghost"
+            style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+            onClick={() => action.action ? action.action() : openUrl(action.url)}
+          >
+            {action.label}
+          </button>
+        ))}
+        {(command || details) && (
+          <button
+            className="btn-ghost"
+            style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded ? 'Hide Details' : 'Show Details'}
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10 }}>
+          {details && (
+            <div style={{
+              marginBottom: command ? 10 : 0,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid var(--border-subtle)',
+              fontSize: 11,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+            }}>
+              {details}
+            </div>
+          )}
+          {command && (
+            <pre style={{
+              margin: 0,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(0,0,0,0.18)',
+              border: '1px solid var(--border-subtle)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: "'JetBrains Mono','Courier New',monospace",
+              fontSize: 11,
+              color: 'var(--text-primary)',
+              lineHeight: 1.55,
+            }}>
+              {command}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
   useEffect(() => {
@@ -4784,6 +4900,12 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
       body: 'Windows usually needs the right USB driver before adb or fastboot can see the phone. Install the driver, reconnect, then return to Devices.',
       accent: 'rgba(59,130,246,0.22)',
       current: platform === 'windows',
+      steps: [
+        { title: 'Open Drivers', body: 'Use the built-in Drivers panel to find the right USB driver for your phone or headset.' },
+        { title: 'Install and reconnect', body: 'Finish the driver install, then unplug and reconnect the USB cable.' },
+        { title: 'Approve debugging', body: 'Unlock the device and tap Allow if Android shows the USB debugging prompt.' },
+      ],
+      details: 'If adb or fastboot still cannot see the device after the driver install, try a different USB port or data cable, then re-open the Devices screen and scan again.',
       actions: [
         { label: 'Open Drivers', action: () => onOpenPanel?.('drivers') },
         { label: 'Open Getting Started', action: () => onOpenPanel?.('getting-started') },
@@ -4796,7 +4918,13 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
       body: 'macOS normally just needs Android platform-tools installed once. After that, reconnect the cable and approve USB debugging on the device.',
       accent: 'rgba(168,85,247,0.22)',
       current: platform === 'macos',
+      steps: [
+        { title: 'Install platform-tools', body: 'Run the Homebrew command once to install adb and fastboot on your Mac.' },
+        { title: 'Reconnect the cable', body: 'Plug the phone back in after install so Android refreshes the USB connection.' },
+        { title: 'Approve debugging', body: 'Unlock the phone and tap Allow when the USB debugging prompt appears.' },
+      ],
       command: 'brew install android-platform-tools\nadb version',
+      details: 'If the phone still does not appear, try a different cable, confirm Homebrew is installed, and check that USB Debugging is still enabled under Developer Options.',
       actions: [
         { label: 'Platform-Tools Guide', url: 'https://developer.android.com/tools/releases/platform-tools' },
         { label: 'Open Getting Started', action: () => onOpenPanel?.('getting-started') },
@@ -4996,74 +5124,22 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
         )}
 
         {showPlatformSetup && (
-        <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 24 }}>
           <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Platform Setup</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
             {platformSetupCards.map(card => (
-              <div key={card.id} style={{
-                background: 'var(--bg-elevated)',
-                border: `1px solid ${card.current ? card.accent : 'var(--border)'}`,
-                borderRadius: 'var(--radius-md)',
-                padding: '14px 16px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
-                      {card.kicker}
-                    </div>
-                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>
-                      {card.title}
-                    </div>
-                  </div>
-                  {card.current && (
-                    <div style={{
-                      padding: '3px 8px',
-                      borderRadius: 999,
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: 10,
-                      color: 'var(--text-muted)',
-                    }}>
-                      Current platform
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
-                  {card.body}
-                </div>
-                {card.render}
-                {card.command && (
-                  <pre style={{
-                    margin: '0 0 10px',
-                    padding: '10px 12px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'rgba(0,0,0,0.18)',
-                    border: '1px solid var(--border-subtle)',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    fontFamily: "'JetBrains Mono','Courier New',monospace",
-                    fontSize: 11,
-                    color: 'var(--text-primary)',
-                    lineHeight: 1.55,
-                  }}>
-                    {card.command}
-                  </pre>
-                )}
-                {card.actions && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {card.actions.map(action => (
-                      <button
-                        key={action.label}
-                        className="btn-ghost"
-                        style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
-                        onClick={() => action.action ? action.action() : openUrl(action.url)}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <PlatformSetupCard
+                key={card.id}
+                title={card.title}
+                kicker={card.kicker}
+                body={card.body}
+                accent={card.accent}
+                current={card.current}
+                steps={card.steps}
+                actions={card.actions}
+                command={card.command}
+                details={card.details}
+              >{card.render}</PlatformSetupCard>
             ))}
           </div>
         </div>
