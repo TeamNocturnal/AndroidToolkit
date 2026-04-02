@@ -8,7 +8,7 @@ Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workfl
 
 Android Toolkit by Team Nocturnal has moved far beyond the original "APK installer + ADB helper" idea.
 
-The current project is a cross-platform toolkit built with `Tauri 2 + Rust + React` that gives you:
+The current project is a cross-platform toolkit built with `Tauri 2 + Rust + JavaScript` that gives you:
 
 - a desktop control center for Android devices over `ADB` and `Fastboot`
 - a mobile-first Android build with its own on-device tool flow
@@ -67,6 +67,7 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Rea
 
 - `Tauri 2`
 - `Rust`
+- `JavaScript`
 - `React`
 - `Vite`
 - bundled `adb` and `fastboot` binaries
