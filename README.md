@@ -235,7 +235,7 @@ npm run tauri build
 Expected output:
 
 - `src-tauri/target/release/bundle/macos/TN Toolkit.app`
-- `src-tauri/target/release/bundle/dmg/TN Toolkit_2.0.0-beta.6_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/Android Toolkit_2.0.0-beta.7_aarch64.dmg`
 
 ### Notes For macOS
 

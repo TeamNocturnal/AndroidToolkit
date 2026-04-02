@@ -533,7 +533,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
           color: 'var(--text-primary)', letterSpacing: '-0.01em',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          TN Toolkit 2.0 Beta 6
+          Android Toolkit Beta 7
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
@@ -552,7 +552,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
           fontSize: 'var(--text-sm)', fontWeight: 'var(--font-bold)',
           color: 'var(--text-primary)', letterSpacing: '-0.01em',
         }}>
-          ⚡ TN Toolkit 2.0 Beta 6
+          ⚡ Android Toolkit Beta 7
         </span>
       </div>
 
@@ -4354,7 +4354,7 @@ function WelcomeScreen({ onDismiss }) {
           WebkitTextFillColor: 'transparent', backgroundClip: 'text',
           marginBottom: 10,
         }}>
-          TN Toolkit
+          Android Toolkit by Team Nocturnal
         </div>
         <div style={{ fontSize: 'var(--text-base)', color: 'var(--text-muted)', marginBottom: 36 }}>
           Android Device Manager &amp; APK Installer
@@ -4494,7 +4494,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <span style={{ fontSize: 36, flexShrink: 0 }}>🌙</span>
           <div>
             <div style={{ fontWeight: 'var(--font-bold)', fontSize: 'var(--text-lg)', color: 'var(--text-primary)', marginBottom: 4 }}>
-              TN Toolkit
+              Android Toolkit by Team Nocturnal
             </div>
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
               {isAndroid
@@ -4627,8 +4627,8 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <div className="sidebar-section-label" style={{ marginBottom: 12 }}>About</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
-              ['App',      'TN Toolkit'],
-              ['Version',  'v2.0.0 Beta 6'],
+              ['App',      'Android Toolkit by Team Nocturnal'],
+              ['Version',  'v2.0.0 Beta 7'],
               ['Built by', 'XsMagical — Team Nocturnal'],
               ['Stack',    'Tauri 2 + React + Vite + Rust'],
             ].map(([k, v]) => (
@@ -4644,7 +4644,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
             fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.65,
           }}>
             <span style={{ fontWeight: 'var(--font-semibold)', color: 'var(--accent)' }}>XDA History:</span>{' '}
-            XsMagical started developing Xplod ROM and Nocturnal ROM for Android devices on XDA Developers from 2011–2014. TN Toolkit carries that legacy forward as a modern desktop companion app.
+            XsMagical started developing Xplod ROM and Nocturnal ROM for Android devices on XDA Developers from 2011–2014. Android Toolkit by Team Nocturnal carries that legacy forward as a modern desktop companion app.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-ghost" style={{ padding: '5px 14px', fontSize: 'var(--text-xs)' }} onClick={() => openUrl('https://team-nocturnal.com')}>
@@ -4943,7 +4943,7 @@ function AndroidDeviceHome({ device, props, loading, onOpenPanel }) {
               No device detected
             </div>
             <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              TN Toolkit on Android is designed to work with the device it is running on.
+              Android Toolkit on Android is designed to work with the device it is running on.
             </div>
           </div>
         </div>
@@ -5099,7 +5099,7 @@ function AndroidDeviceHome({ device, props, loading, onOpenPanel }) {
             color: 'var(--text-secondary)',
             lineHeight: 1.55,
           }}>
-            TN Toolkit on Android is local-device first. Remote ADB pairing and connect are available when you need them, while desktop-only flashing workflows stay out of the mobile experience.
+            Android Toolkit on Android is local-device first. Remote ADB pairing and connect are available when you need them, while desktop-only flashing workflows stay out of the mobile experience.
           </div>
           <div style={{
             background: 'rgba(168,85,247,0.07)',
@@ -5324,7 +5324,7 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices, onOpenPan
   const actionCards = [
     {
       title: 'Grant Storage Access',
-      desc: 'Opens Android settings so TN Toolkit can read shared storage. This is needed before cleanup tools can scan Downloads, Pictures, and other common folders.',
+      desc: 'Opens Android settings so Android Toolkit can read shared storage. This is needed before cleanup tools can scan Downloads, Pictures, and other common folders.',
       onClick: () => runMaint('Open all-files access settings', ['shell', 'am', 'start', '-a', 'android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', '-d', `package:${ANDROID_APP_ID}`]),
       button: 'Open Permission',
     },
@@ -7694,7 +7694,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
   function toggle(k) { setOpen(o => ({ ...o, [k]: !o[k] })) }
 
   // ── Shell terminal ──
-  const [shellLines, setShellLines]     = useState([{ cls: 'ok', text: 'TN Toolkit ADB Shell' }, { cls: 'prompt', text: '$ ' }])
+  const [shellLines, setShellLines]     = useState([{ cls: 'ok', text: 'Android Toolkit ADB Shell' }, { cls: 'prompt', text: '$ ' }])
   const [shellInput, setShellInput]     = useState('')
   const [shellHistory, setShellHistory] = useState([])
   const [histIdx, setHistIdx]           = useState(-1)
@@ -7877,7 +7877,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
               On-device shell tools
             </div>
             <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-              Use this screen for local shell commands, saved commands, and live logs from the Android device running TN Toolkit.
+              Use this screen for local shell commands, saved commands, and live logs from the Android device running Android Toolkit.
             </div>
           </div>
         )}
@@ -7953,7 +7953,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
                 <button
                   className="btn-ghost"
                   style={{ padding: isAndroid ? '0 14px' : '0 12px', fontSize: isAndroid ? 13 : 'var(--text-xs)', flexShrink: 0 }}
-                  onClick={() => setShellLines([{ cls: 'ok', text: 'TN Toolkit ADB Shell' }, { cls: 'prompt', text: '$ ' }])}
+                  onClick={() => setShellLines([{ cls: 'ok', text: 'Android Toolkit ADB Shell' }, { cls: 'prompt', text: '$ ' }])}
                 >
                   Clear
                 </button>
@@ -10512,7 +10512,7 @@ export default function App() {
               color: 'var(--text-muted)',
               letterSpacing: '0.04em',
             }}>
-              v2.0.0 Beta 6
+              v2.0.0 Beta 7
             </div>
           </div>
         )}
@@ -10574,7 +10574,7 @@ export default function App() {
                     Main Menu
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    TN Toolkit for Android
+                    Android Toolkit for Android
                   </div>
                 </div>
               </div>
