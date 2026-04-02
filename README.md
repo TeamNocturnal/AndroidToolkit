@@ -2,7 +2,7 @@
 
 Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workflows, app management, TV tools, Quest tools, maintenance, backups, and power-user Android workflows from a cleaner UI.
 
-[Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · `macOS` · `Windows` · `Android`
+[Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · `macOS` · `Windows` · `Linux` · `Android`
 
 ## What Android Toolkit by Team Nocturnal Is Now
 
@@ -85,6 +85,7 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Jav
 - Use `GitHub` and regular `git pull` / `git push` for sync and history instead of a file-sync service.
 - Good local paths:
   - macOS: `~/Projects/AndroidToolkit`
+  - Linux: `~/Projects/AndroidToolkit`
   - Windows: `C:\Projects\AndroidToolkit`
 
 ### 1. Clone The Repo
@@ -284,6 +285,145 @@ npm run tauri build
 
 - If you plan to build Android on Windows too, keep your Android SDK / NDK / Java paths configured in your environment first.
 - The older environment notes in [WINDOWS_ENV.md](/Users/xs/Library/CloudStorage/OneDrive-Personal/Team%20Nocturnal/Projects/Nocturnal%20Toolkit/WINDOWS_ENV.md) are still useful as a machine-specific reference.
+
+## Linux Setup
+
+Linux desktop builds are now supported for `x86_64` systems, including `Debian`, `Fedora`, `Arch Linux`, and `openSUSE`.
+
+### Requirements
+
+- `Node.js` + `npm`
+- `Rust`
+- Tauri Linux system dependencies
+- `xdg-open` support from your desktop environment for reveal-in-folder actions
+
+Install the common app dependencies first, then the distro-specific packages below.
+
+### Debian
+
+Based on the current Tauri v2 prerequisites:
+
+```bash
+sudo apt update
+sudo apt install \
+  libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  nodejs \
+  npm
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+```
+
+### Arch Linux
+
+Based on the current Tauri v2 prerequisites:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed \
+  webkit2gtk-4.1 \
+  base-devel \
+  curl \
+  wget \
+  file \
+  openssl \
+  appmenu-gtk-module \
+  libappindicator-gtk3 \
+  librsvg \
+  xdotool \
+  nodejs \
+  npm
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+```
+
+### Fedora
+
+Based on the current Tauri v2 prerequisites:
+
+```bash
+sudo dnf check-update
+sudo dnf install \
+  webkit2gtk4.1-devel \
+  openssl-devel \
+  curl \
+  wget \
+  file \
+  libappindicator-gtk3-devel \
+  librsvg2-devel \
+  libxdo-devel \
+  nodejs \
+  npm
+sudo dnf group install "c-development"
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+```
+
+### openSUSE
+
+Based on the current Tauri v2 prerequisites:
+
+```bash
+sudo zypper up
+sudo zypper in \
+  webkit2gtk3-devel \
+  libopenssl-devel \
+  curl \
+  wget \
+  file \
+  libappindicator3-1 \
+  librsvg-devel \
+  nodejs \
+  npm
+sudo zypper in -t pattern devel_basis
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+source "$HOME/.cargo/env"
+```
+
+### Recommended Local Path
+
+```bash
+mkdir -p ~/Projects
+cd ~/Projects
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
+npm install
+```
+
+### Run In Dev Mode
+
+```bash
+npm run tauri dev
+```
+
+### Compile Linux App
+
+Use the same desktop build command on `Debian`, `Fedora`, `Arch Linux`, and `openSUSE` after installing the distro-specific dependencies above:
+
+```bash
+npm run tauri build
+```
+
+Expected output will usually include Linux bundle directories such as:
+
+- `src-tauri/target/release/bundle/appimage/`
+- `src-tauri/target/release/bundle/deb/`
+- `src-tauri/target/release/bundle/rpm/`
+
+Depending on the host distro and installed tooling, Tauri may emit one or more Linux package artifacts inside those folders.
+
+### Notes For Linux
+
+- This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
+- Debian, Fedora, Arch Linux, and openSUSE builds should use the native package manager dependencies above instead of copying over macOS or Windows setup steps.
+- Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 ## Android Build Notes
 
