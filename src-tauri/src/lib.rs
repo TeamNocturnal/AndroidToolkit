@@ -1,7 +1,7 @@
 // ── Platform split ────────────────────────────────────────────────────────────
-// This crate targets macOS, Windows, and Android from a single codebase.
+// This crate targets macOS, Windows, Linux, and Android from a single codebase.
 //
-// Desktop (macOS / Windows):
+// Desktop (macOS / Windows / Linux):
 //   ADB and Fastboot are bundled as sidecars in src-tauri/binaries/ and
 //   executed via tauri-plugin-shell's sidecar API.
 //
@@ -638,9 +638,12 @@ async fn run_adb_sidecar(
     app: &tauri::AppHandle,
     args: Vec<String>,
 ) -> Result<serde_json::Value, String> {
-    let refresh_after = args
-        .first()
-        .is_some_and(|cmd| matches!(cmd.as_str(), "connect" | "disconnect" | "pair" | "kill-server" | "start-server"));
+    let refresh_after = args.first().is_some_and(|cmd| {
+        matches!(
+            cmd.as_str(),
+            "connect" | "disconnect" | "pair" | "kill-server" | "start-server"
+        )
+    });
     let output = app
         .shell()
         .sidecar("adb")
@@ -1689,6 +1692,16 @@ async fn open_in_finder(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(target_os = "linux")]
+    {
+        let target = std::path::Path::new(&path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(&path));
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -1945,7 +1958,16 @@ fn get_platform() -> &'static str {
     {
         return "windows";
     }
-    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        return "linux";
+    }
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux"
+    )))]
     {
         return "desktop";
     }
@@ -1986,7 +2008,8 @@ pub fn run() {
         builder = builder.manage(AndroidAdbState(Mutex::new(BTreeSet::new())));
     }
 
-    builder.setup(|app| {
+    builder
+        .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
