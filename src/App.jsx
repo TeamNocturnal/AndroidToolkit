@@ -76,6 +76,14 @@ function parseResolution(stdout) {
   return m ? `${m[1]} × ${m[2]}` : null
 }
 
+function previewPlatformOverride() {
+  try {
+    const value = new URLSearchParams(window.location.search).get('preview_platform')
+    if (['android', 'macos', 'windows', 'linux', 'desktop'].includes(value)) return value
+  } catch {}
+  return null
+}
+
 function parseLinuxOsRelease(text) {
   const values = {}
   String(text || '').split('\n').forEach(line => {
@@ -214,6 +222,7 @@ const NAV_SECTIONS = [
     label: 'HELP',
     items: [
       { id: 'help', icon: '❓', label: 'Help & Docs' },
+      { id: 'about', icon: 'ℹ️', label: 'About' },
     ],
   },
 ]
@@ -238,17 +247,18 @@ const ANDROID_MENU_DESCRIPTIONS = {
 }
 
 const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom'])
-const MAC_HIDDEN_PANELS = new Set(['drivers'])
+const NON_WINDOWS_HIDDEN_PANELS = new Set(['drivers'])
 const ANDROID_EXTRA_NAV_ITEMS = [
   { id: 'maintenance', icon: '🧹', label: 'Maintenance' },
 ]
 
-function LinuxUsbHelperCard({ devices, ready, onOpenWireless }) {
+function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, compact = false }) {
   const [linuxSetup, setLinuxSetup] = useState(() => linuxUsbSetupForDistro({}))
   const [diag, setDiag] = useState('')
   const [checking, setChecking] = useState(false)
+  const [expanded, setExpanded] = useState(() => !compact)
   const usbDevices = devices.filter(d => !String(d.serial || '').includes(':'))
-  const visible = ready && usbDevices.length === 0
+  const visible = usbDevices.length === 0
 
   useEffect(() => {
     if (!visible) return
@@ -300,9 +310,15 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless }) {
     await navigator.clipboard.writeText(diag || 'No diagnostics collected yet.')
   }
 
+  const quickSteps = [
+    'Copy the command for your Linux distro.',
+    'Paste it into Terminal and press Enter.',
+    'Reconnect the USB cable and unlock your phone.',
+  ]
+
   return (
     <div style={{
-      margin: '0 16px 14px',
+      margin: embedded ? '0' : '0 16px 14px',
       padding: '14px 14px 12px',
       borderRadius: 'var(--radius-md)',
       background: 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(20,184,166,0.07))',
@@ -313,37 +329,130 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless }) {
           Linux USB Access
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-          {linuxSetup.name}
+          {ready ? linuxSetup.name : 'Checking devices…'}
         </div>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
-        Android Toolkit already bundles <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>adb</code> and <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>fastboot</code> on Linux, but USB access still needs an admin-approved <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>udev</code> rule. If your phone is connected over USB and still does not appear, run the fix below, reconnect the cable, then retry detection.
+        Android Toolkit already includes <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>adb</code> and <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>fastboot</code> on Linux. If your phone does not appear over USB, Linux usually just needs one permissions fix.
       </div>
+      {!ready && (
+        <div style={{
+          marginBottom: 10,
+          padding: '8px 10px',
+          borderRadius: 'var(--radius-sm)',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid var(--border-subtle)',
+          fontSize: 11,
+          color: 'var(--text-secondary)',
+          lineHeight: 1.55,
+        }}>
+          Android Toolkit is still checking for connected devices. You do not need to wait here if you already know USB ADB is not working.
+        </div>
+      )}
+      {compact ? (
+        <div style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '12px 13px',
+          marginBottom: 10,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>
+            Fast fix for {linuxSetup.name}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, marginBottom: 10 }}>
+            {quickSteps.map((step, index) => (
+              <div key={step} style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                <span style={{ color: 'var(--accent-yellow)', fontWeight: 'var(--font-semibold)', marginRight: 6 }}>
+                  {index + 1}.
+                </span>
+                {step}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyFixCommand}>Copy Fix Command</button>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setExpanded(value => !value)}>
+              {expanded ? 'Hide Details' : 'Show Details'}
+            </button>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={runDiagnostics} disabled={checking}>
+              {checking ? 'Checking…' : 'Retry Detection'}
+            </button>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={onOpenWireless}>Use Wireless ADB</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 10 }}>
+          {[
+            { step: '1', title: 'Copy the fix', body: 'Copy one command for your Linux distro.', action: () => copyFixCommand(), label: 'Copy Fix Command' },
+            { step: '2', title: 'Paste into Terminal', body: 'Paste it into Terminal and press Enter. Your computer may ask for your password.', action: null, label: null },
+            { step: '3', title: 'Reconnect your phone', body: 'Unplug the USB cable, plug it back in, then unlock your phone.', action: () => runDiagnostics(), label: checking ? 'Checking…' : 'Retry Detection', disabled: checking },
+            { step: '4', title: 'Still stuck?', body: 'Skip USB for now and pair with Wireless ADB instead.', action: () => onOpenWireless?.(), label: 'Use Wireless ADB' },
+          ].map(item => (
+            <div key={item.step} style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '10px 12px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.28)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--accent-yellow)',
+                }}>
+                  {item.step}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>
+                  {item.title}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: item.label ? 8 : 0 }}>
+                {item.body}
+              </div>
+              {item.label && (
+                <button
+                  className="btn-ghost"
+                  style={{ fontSize: 11, padding: '4px 10px' }}
+                  onClick={item.action}
+                  disabled={item.disabled}
+                >
+                  {item.label}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 10 }}>
         {linuxSetup.note}
       </div>
-      <pre style={{
-        margin: '0 0 10px',
-        padding: '10px 12px',
-        borderRadius: 'var(--radius-sm)',
-        background: 'rgba(0,0,0,0.18)',
-        border: '1px solid var(--border-subtle)',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontFamily: "'JetBrains Mono','Courier New',monospace",
-        fontSize: 11,
-        color: 'var(--text-primary)',
-        lineHeight: 1.55,
-      }}>
-        {linuxSetup.command}
-      </pre>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: diag ? 10 : 0 }}>
-        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyFixCommand}>Copy Fix Command</button>
-        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} disabled={checking} onClick={runDiagnostics}>{checking ? 'Checking…' : 'Retry Detection'}</button>
-        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyDiagnostics}>Copy Diagnostics</button>
-        <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={onOpenWireless}>Use Wireless ADB Instead</button>
-      </div>
-      {diag && (
+      {expanded && (
+        <>
+          <pre style={{
+            margin: '0 0 10px',
+            padding: '10px 12px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'rgba(0,0,0,0.18)',
+            border: '1px solid var(--border-subtle)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: "'JetBrains Mono','Courier New',monospace",
+            fontSize: 11,
+            color: 'var(--text-primary)',
+            lineHeight: 1.55,
+          }}>
+            {linuxSetup.command}
+          </pre>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: diag ? 10 : 0 }}>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyFixCommand}>Copy Again</button>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={copyDiagnostics}>Copy Diagnostics</button>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={onOpenWireless}>Open Wireless ADB</button>
+          </div>
+        </>
+      )}
+      {expanded && diag && (
         <pre style={{
           margin: 0,
           padding: '10px 12px',
@@ -2261,9 +2370,11 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                       </ol>
                     </div>
                   ))}
-                  <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    ℹ Windows users: Install Oculus ADB Drivers from developers.meta.com before connecting via USB. Without these drivers the headset will not be detected.
-                  </div>
+                  {platform === 'windows' && (
+                    <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                      ℹ Windows users: Install Oculus ADB Drivers from developers.meta.com before connecting via USB. Without these drivers the headset will not be detected.
+                    </div>
+                  )}
                   <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }}
                       onClick={async () => { const r = await invoke('run_adb', { args: ['devices'] }); setQuestAdbOutput((r.stdout || r.stderr || '').trim()) }}>
@@ -4220,8 +4331,8 @@ function FilesPanel({ device, onNavigateToDevices }) {
   return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="files" />
 }
 
-function QuestPanel({ device, onNavigateToDevices }) {
-  return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="quest" />
+function QuestPanel({ device, onNavigateToDevices, platform }) {
+  return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="quest" platform={platform} />
 }
 
 function RomPanel({ device, onNavigateToDevices }) {
@@ -4286,23 +4397,31 @@ const DRIVERS = [
   },
 ]
 
-function DriversPanel() {
-  const [adbTestResult, setAdbTestResult] = useState(null)
-  const [testingAdb, setTestingAdb]       = useState(false)
+function DriversPanel({ platform }) {
+  const isWindows = platform === 'windows'
 
-  const isMac     = navigator.userAgent.includes('Mac')
-  const isWindows = navigator.userAgent.includes('Win')
-
-  async function testAdb() {
-    setTestingAdb(true)
-    setAdbTestResult(null)
-    try {
-      const res = await invoke('run_adb', { args: ['devices'] })
-      setAdbTestResult({ ok: true, text: (res.stdout || '').trim() || 'No output' })
-    } catch (e) {
-      setAdbTestResult({ ok: false, text: String(e) })
-    }
-    setTestingAdb(false)
+  if (!isWindows) {
+    return (
+      <div className="panel-content">
+        <div className="panel-header-row">
+          <div style={{ minWidth: 0 }}>
+            <div className="panel-header-accent" />
+            <h1 className="panel-header">Drivers</h1>
+          </div>
+        </div>
+        <div className="panel-scroll">
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18,
+            background: 'rgba(168,85,247,0.07)', border: '1px solid rgba(168,85,247,0.25)',
+            borderRadius: 'var(--radius-sm)', padding: '12px 16px',
+            fontSize: 'var(--text-sm)', color: 'var(--accent)',
+          }}>
+            <span>ℹ️</span>
+            <span>USB driver downloads are only shown on Windows builds. On macOS and Linux, use the regular ADB and USB setup guides instead.</span>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const mono = "'JetBrains Mono','Courier New',monospace"
@@ -4318,47 +4437,6 @@ function DriversPanel() {
       </div>
 
       <div className="panel-scroll">
-
-        {/* ── macOS notice ── */}
-        {isMac && (
-          <div style={{
-            display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 20,
-            background: 'rgba(6,182,212,0.07)', border: '1px solid rgba(6,182,212,0.25)',
-            borderRadius: 'var(--radius-lg)', padding: '18px 20px',
-          }}>
-            <span style={{ fontSize: 32, flexShrink: 0, lineHeight: 1 }}>🍎</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 'var(--font-bold)', fontSize: 'var(--text-base)', color: 'var(--accent-teal)', marginBottom: 6 }}>
-                You're on macOS — no USB drivers needed!
-              </div>
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
-                Unlike Windows, macOS handles USB device communication natively. You don't need to install any ADB drivers —
-                just connect your device and enable USB debugging.
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                <div>
-                  <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '5px 14px' }}
-                    disabled={testingAdb}
-                    onClick={testAdb}>
-                    {testingAdb ? '…' : '🔌 Test ADB Now'}
-                  </button>
-                  {adbTestResult && (
-                    <div style={{
-                      marginTop: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)',
-                      background: adbTestResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                      border: `1px solid ${adbTestResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                      fontFamily: mono, fontSize: 11,
-                      color: adbTestResult.ok ? 'var(--accent-green)' : 'var(--accent-red)',
-                      whiteSpace: 'pre-wrap', maxWidth: 400,
-                    }}>
-                      {adbTestResult.text}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ── Windows notice ── */}
         {isWindows && (
@@ -4387,19 +4465,6 @@ function DriversPanel() {
           </div>
         )}
 
-        {/* ── Linux / unknown notice ── */}
-        {!isMac && !isWindows && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18,
-            background: 'rgba(168,85,247,0.07)', border: '1px solid rgba(168,85,247,0.25)',
-            borderRadius: 'var(--radius-sm)', padding: '12px 16px',
-            fontSize: 'var(--text-sm)', color: 'var(--accent)',
-          }}>
-            <span>⚠️</span>
-            <span>Driver installation is a <strong>Windows-only</strong> requirement. On macOS and Linux, ADB works without USB drivers.</span>
-          </div>
-        )}
-
         {/* ── Driver grid header ── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
@@ -4411,9 +4476,7 @@ function DriversPanel() {
           <div>
             <div style={{ fontWeight: 'var(--font-bold)', fontSize: 'var(--text-base)', marginBottom: 4 }}>ADB Device Drivers</div>
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              {isMac
-                ? 'Shown for reference — USB drivers are not needed on macOS.'
-                : 'Install the correct driver for your Android device.'}
+              Install the correct driver for your Android device.
             </div>
           </div>
         </div>
@@ -4425,21 +4488,9 @@ function DriversPanel() {
               background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-lg)', padding: 18,
               display: 'flex', flexDirection: 'column', gap: 12,
-              position: 'relative', opacity: isMac ? 0.75 : 1,
+              position: 'relative',
               transition: 'border-color 0.15s',
             }}>
-              {/* Badge */}
-              {isMac && (
-                <div style={{
-                  position: 'absolute', top: 12, right: 12,
-                  fontSize: 10, fontWeight: 'var(--font-bold)', padding: '2px 8px',
-                  borderRadius: 99, background: 'rgba(6,182,212,0.1)',
-                  color: 'var(--accent-teal)', border: '1px solid rgba(6,182,212,0.25)',
-                }}>
-                  Windows only
-                </div>
-              )}
-
               {/* Icon + title */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
@@ -4449,7 +4500,7 @@ function DriversPanel() {
                 }}>
                   {d.icon}
                 </div>
-                <div style={{ flex: 1, minWidth: 0, paddingRight: isMac ? 72 : 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 'var(--font-semibold)', fontSize: 'var(--text-sm)', marginBottom: 2 }}>{d.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.version} · {d.size} · {d.author}</div>
                 </div>
@@ -4492,7 +4543,7 @@ function DriversPanel() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '5px 14px' }}
               onClick={() => openUrl('https://developer.android.com/tools/adb')}>
-              {isMac ? '🍎 Mac ADB Setup Guide' : '📖 Setup Guide'}
+              📖 Setup Guide
             </button>
             <button className="btn-ghost" style={{ fontSize: 'var(--text-xs)', padding: '5px 14px' }}
               onClick={() => openUrl('https://developer.android.com/studio/run/device')}>
@@ -4624,25 +4675,67 @@ const HELP_PANELS = [
   { icon: '📺', label: 'Kodi / TV Setup', desc: 'Install and configure Kodi on Android TV, Fire TV, or ONN devices. Add repos, sources, and streaming add-ons.', url: 'https://kodi.wiki/view/Android' },
   { icon: '🔥', label: 'Fire TV Modding', desc: 'Debloat Fire TV, install custom launchers, sideload apps, and remove Amazon ads using Downloader by AFTVnews.', url: 'https://www.aftv.news/how-to-install-downloader-on-fire-tv/' },
   { icon: '🥽', label: 'Meta Quest Sideloading', desc: 'Enable developer mode on Meta Quest, sideload APKs via ADB, and manage storage for your headset.', url: 'https://developers.meta.com/horizon/documentation/native/android/mobile-device-setup/' },
-  { icon: '🔌', label: 'Drivers',       desc: 'USB driver downloads for Windows (Google, OEM). ADB setup instructions for macOS via Homebrew. Test ADB connectivity.' },
+  { icon: '🔌', label: 'Drivers',       desc: 'USB driver downloads for Windows builds.' },
   { icon: '⚙️', label: 'Advanced',      desc: 'Reboot to any mode, enable wireless ADB, one-tap quick commands (device info, screen capture, network), and saved favorites.' },
 ]
 
 const HELP_SETUP_STEPS = [
-  { step: '1', title: 'Enable USB Debugging', body: 'Go to Settings → About Phone → tap Build Number 7 times. Then Settings → Developer Options → enable USB Debugging.', url: 'https://developer.android.com/studio/debug/dev-options' },
-  { step: '2', title: 'Connect via USB',       body: 'Plug in your device and tap "Allow" on the authorization prompt. If it doesn\'t appear, disconnect and reconnect.', url: 'https://developer.android.com/tools/adb#Enabling' },
-  { step: '3', title: 'Wireless ADB (Android 11+)', body: 'In Developer Options, enable "Wireless debugging". Use the IP and port shown, or pair with a 6-digit code from the Advanced panel.', url: 'https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi' },
-  { step: '4', title: 'macOS: Install ADB',    body: 'Run: brew install android-platform-tools\nThen verify with: adb version', url: 'https://developer.android.com/tools/releases/platform-tools' },
-  { step: '5', title: 'Windows: Install ADB',  body: 'Use the Drivers panel to download and install Google USB drivers and platform-tools.', url: 'https://developer.android.com/tools/releases/platform-tools' },
+  { id: 'usb-debugging', priority: 10, step: '1', title: 'Enable USB Debugging', body: 'On your phone: Settings → About Phone → tap Build Number 7 times. Then open Developer Options and turn on USB Debugging.', url: 'https://developer.android.com/studio/debug/dev-options' },
+  { id: 'connect-usb', priority: 20, step: '2', title: 'Connect via USB', body: 'Plug in your device and tap Allow on the phone if Android asks for USB debugging permission.', url: 'https://developer.android.com/tools/adb#Enabling' },
+  { id: 'linux-usb', priority: 30, step: '3', title: 'Linux: Fix USB Access', body: 'If your phone still does not show up, open Help & Docs for the quick Linux USB fix.', actionLabel: 'Open Help & Docs', actionTarget: 'help' },
+  { id: 'windows-adb', priority: 30, step: '3', title: 'Windows: Install ADB Drivers', body: 'Open the Drivers panel and install the correct USB driver for your phone, then reconnect the cable.', actionLabel: 'Open Drivers', actionTarget: 'drivers' },
+  { id: 'macos-adb', priority: 30, step: '3', title: 'macOS: Install ADB', body: 'Run: brew install android-platform-tools\nThen check it with: adb version', url: 'https://developer.android.com/tools/releases/platform-tools' },
+  { id: 'wireless', priority: 40, step: '4', title: 'Wireless ADB (Optional)', body: 'If USB is annoying, you can pair over Wi-Fi from the Devices screen using Wireless Debugging on Android 11+.', url: 'https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi', actionLabel: 'Open Devices', actionTarget: 'devices' },
+]
+
+const HELP_CONNECTION_CARDS = [
+  {
+    id: 'usb-debugging',
+    title: 'Enable USB Debugging',
+    body: 'On your phone, unlock Developer Options and turn on USB Debugging before connecting to Android Toolkit.',
+    actionLabel: 'Read Android Guide',
+    url: 'https://developer.android.com/studio/debug/dev-options',
+  },
+  {
+    id: 'connect-usb',
+    title: 'Connect over USB',
+    body: 'Use a data cable, unlock the phone, and press Allow if Android asks whether to trust this computer for USB debugging.',
+    actionLabel: 'USB Connection Help',
+    url: 'https://developer.android.com/tools/adb#Enabling',
+  },
+  {
+    id: 'wireless',
+    title: 'Use Wireless ADB',
+    body: 'If USB is still giving you trouble, pair over Wi-Fi from the Devices screen using Android 11+ Wireless Debugging.',
+    actionLabel: 'Open Devices',
+    actionTarget: 'devices',
+    secondaryLabel: 'Read Wireless Guide',
+    secondaryUrl: 'https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi',
+  },
 ]
 
 function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
-  const [platform, setPlatform] = useState('desktop')
+  const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
   useEffect(() => {
+    const preview = previewPlatformOverride()
+    if (preview) {
+      setPlatform(preview)
+      return
+    }
     invoke('get_platform').then(p => setPlatform(p)).catch(() => setPlatform('desktop'))
   }, [])
   const isAndroid = platform === 'android'
-  const visibleHelpPanels = HELP_PANELS.filter(panel => !isAndroid || !['Backup & Restore', 'File Browser', 'ROM Tools', 'Drivers'].includes(panel.label))
+  const visibleHelpPanels = HELP_PANELS.filter(panel => {
+    if (panel.label === 'Drivers' && platform !== 'windows') return false
+    if (isAndroid && ['Backup & Restore', 'File Browser', 'ROM Tools', 'Drivers'].includes(panel.label)) return false
+    return true
+  })
+  const visibleSetupSteps = HELP_SETUP_STEPS.filter(step => {
+    if (step.id === 'windows-adb' && platform !== 'windows') return false
+    if (step.id === 'macos-adb' && platform !== 'macos') return false
+    if (step.id === 'linux-usb' && platform !== 'linux') return false
+    return true
+  }).sort((a, b) => a.priority - b.priority)
   const androidHelpCards = [
     { title: 'This phone first', body: 'The Android app is centered on the device it is installed on. Remote-device ADB control is still a future feature.' },
     { title: 'Tweaks permissions', body: 'Some tweaks work right away, while others need WRITE_SETTINGS, a one-time ADB grant, or root depending on the setting.' },
@@ -4667,15 +4760,56 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const showHero = mode === 'getting-started'
   const showSetup = mode === 'getting-started'
   const showPanels = mode === 'getting-started'
-  const showLinks = mode !== 'getting-started'
-  const showAbout = mode !== 'getting-started'
+  const showLinks = mode === 'help'
+  const showAbout = mode === 'about'
+  const panelTitle = mode === 'getting-started' ? 'Getting Started' : mode === 'about' ? 'About' : 'Help & Docs'
+  const showConnectionHelp = mode === 'help' && !isAndroid
+  const showPlatformSetup = mode === 'help' && !isAndroid
+  const platformSetupCards = [
+    {
+      id: 'linux',
+      title: 'Linux',
+      kicker: 'USB not detected?',
+      body: 'Linux builds already bundle adb and fastboot. If your device does not appear, it usually just needs USB permissions rules.',
+      accent: 'rgba(245,158,11,0.22)',
+      current: platform === 'linux',
+      render: (
+        <LinuxUsbHelperCard devices={[]} ready={true} onOpenWireless={() => onOpenPanel?.('devices')} embedded compact />
+      ),
+    },
+    {
+      id: 'windows',
+      title: 'Windows',
+      kicker: 'Driver setup',
+      body: 'Windows usually needs the right USB driver before adb or fastboot can see the phone. Install the driver, reconnect, then return to Devices.',
+      accent: 'rgba(59,130,246,0.22)',
+      current: platform === 'windows',
+      actions: [
+        { label: 'Open Drivers', action: () => onOpenPanel?.('drivers') },
+        { label: 'Open Getting Started', action: () => onOpenPanel?.('getting-started') },
+      ],
+    },
+    {
+      id: 'macos',
+      title: 'macOS',
+      kicker: 'Platform tools',
+      body: 'macOS normally just needs Android platform-tools installed once. After that, reconnect the cable and approve USB debugging on the device.',
+      accent: 'rgba(168,85,247,0.22)',
+      current: platform === 'macos',
+      command: 'brew install android-platform-tools\nadb version',
+      actions: [
+        { label: 'Platform-Tools Guide', url: 'https://developer.android.com/tools/releases/platform-tools' },
+        { label: 'Open Getting Started', action: () => onOpenPanel?.('getting-started') },
+      ],
+    },
+  ]
 
   return (
     <div className="panel-content">
       <div className="panel-header-row">
         <div style={{ minWidth: 0 }}>
           <div className="panel-header-accent" />
-          <h1 className="panel-header">{mode === 'getting-started' ? 'Getting Started' : 'Help & Docs'}</h1>
+          <h1 className="panel-header">{panelTitle}</h1>
         </div>
       </div>
 
@@ -4720,30 +4854,50 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
         {showSetup && (
         <div style={{ marginBottom: 24 }}>
           <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Getting Started</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {HELP_SETUP_STEPS.filter(s => !isAndroid || !['4', '5'].includes(s.step)).map(s => (
-              <div key={s.step} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{
-                  width: 26, height: 26, borderRadius: '50%', flexShrink: 0, marginTop: 1,
-                  background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 'var(--font-bold)', color: 'var(--accent)',
-                }}>
-                  {s.step}
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 3 }}>
-                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>{s.title}</div>
-                    {s.url && (
-                      <span
-                        onClick={() => openUrl(s.url)}
-                        style={{ fontSize: 10, color: 'var(--accent-teal)', cursor: 'pointer', marginLeft: 8 }}
-                      >
-                        Read More →
-                      </span>
-                    )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {visibleSetupSteps.map(s => (
+              <div key={s.id} style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '12px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                    background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 'var(--font-bold)', color: 'var(--accent)',
+                  }}>
+                    {s.step}
                   </div>
-                  <div style={{ fontSize: isAndroid ? 13 : 'var(--text-xs)', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{s.body}</div>
+                  <div style={{ fontSize: isAndroid ? 14 : 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>{s.title}</div>
+                </div>
+                <div style={{ fontSize: isAndroid ? 13 : 'var(--text-xs)', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  {s.body}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {s.actionTarget && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => onOpenPanel?.(s.actionTarget)}
+                    >
+                      {s.actionLabel || 'Open'}
+                    </button>
+                  )}
+                  {s.url && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => openUrl(s.url)}
+                    >
+                      Read More
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -4783,6 +4937,132 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
                   </div>
                   <div style={{ fontSize: isAndroid ? 13 : 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>{p.desc}</div>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        )}
+
+        {showConnectionHelp && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Connection Help</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {HELP_CONNECTION_CARDS.map(card => (
+              <div key={card.id} style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '14px 16px',
+              }}>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+                  {card.title}
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
+                  {card.body}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {card.actionTarget && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => onOpenPanel?.(card.actionTarget)}
+                    >
+                      {card.actionLabel}
+                    </button>
+                  )}
+                  {card.url && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => openUrl(card.url)}
+                    >
+                      {card.actionLabel}
+                    </button>
+                  )}
+                  {card.secondaryUrl && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => openUrl(card.secondaryUrl)}
+                    >
+                      {card.secondaryLabel}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        )}
+
+        {showPlatformSetup && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Platform Setup</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+            {platformSetupCards.map(card => (
+              <div key={card.id} style={{
+                background: 'var(--bg-elevated)',
+                border: `1px solid ${card.current ? card.accent : 'var(--border)'}`,
+                borderRadius: 'var(--radius-md)',
+                padding: '14px 16px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+                      {card.kicker}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>
+                      {card.title}
+                    </div>
+                  </div>
+                  {card.current && (
+                    <div style={{
+                      padding: '3px 8px',
+                      borderRadius: 999,
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid var(--border-subtle)',
+                      fontSize: 10,
+                      color: 'var(--text-muted)',
+                    }}>
+                      Current platform
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
+                  {card.body}
+                </div>
+                {card.render}
+                {card.command && (
+                  <pre style={{
+                    margin: '0 0 10px',
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(0,0,0,0.18)',
+                    border: '1px solid var(--border-subtle)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontFamily: "'JetBrains Mono','Courier New',monospace",
+                    fontSize: 11,
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.55,
+                  }}>
+                    {card.command}
+                  </pre>
+                )}
+                {card.actions && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {card.actions.map(action => (
+                      <button
+                        key={action.label}
+                        className="btn-ghost"
+                        style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                        onClick={() => action.action ? action.action() : openUrl(action.url)}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -6337,14 +6617,6 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
   return (
     <div className="devices-panel">
       <div className="devices-list">
-        {platform === 'linux' && (
-          <LinuxUsbHelperCard
-            devices={devices}
-            ready={ready}
-            onOpenWireless={() => onPairSectionToggle?.(true)}
-          />
-        )}
-
         {/* SAVED DEVICES */}
         <div>
           <div style={{ padding: '16px 16px 8px', fontSize: 'var(--text-xs)', fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -6421,7 +6693,47 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
           Connected Devices
         </div>
         {!ready && <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Scanning…</div>}
-        {ready && devices.length === 0 && <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>No devices found</div>}
+        {ready && devices.length === 0 && (
+          <div style={{
+            margin: '0 16px 12px',
+            padding: '10px 12px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid var(--border-subtle)',
+          }}>
+            <div style={{ fontSize: 11, color: 'var(--text-primary)', marginBottom: 4 }}>
+              No devices found
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 8 }}>
+              Check Getting Started for USB setup or open Help & Docs for troubleshooting.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <button
+                className="btn-ghost"
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                onClick={() => onOpenPanel?.('getting-started')}
+              >
+                Open Getting Started
+              </button>
+              <button
+                className="btn-ghost"
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                onClick={() => onOpenPanel?.('help')}
+              >
+                Open Help & Docs
+              </button>
+              {platform === 'linux' && (
+                <button
+                  className="btn-ghost"
+                  style={{ fontSize: 10, padding: '2px 8px' }}
+                  onClick={() => onOpenPanel?.('help')}
+                >
+                  Linux USB Help
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {devices.map(d => {
           const active = selected?.serial === d.serial
           const statusColor = STATUS[d.status]?.text ?? 'var(--text-muted)'
@@ -10421,7 +10733,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'system')
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('nt_welcomed'))
   const [sharedInstallQueue, setSharedInstallQueue] = useState([])
-  const [platform, setPlatform] = useState('desktop')
+  const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
   const [savedDevices, setSavedDevices] = useState([])
   const [savedDeviceHistory, setSavedDeviceHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nocturnal_saved_device_history') || '[]') } catch { return [] }
@@ -10476,6 +10788,11 @@ export default function App() {
 
   // Detect host platform so the UI can adapt
   useEffect(() => {
+    const preview = previewPlatformOverride()
+    if (preview) {
+      setPlatform(preview)
+      return
+    }
     invoke('get_platform').then(p => setPlatform(p)).catch(() => setPlatform('desktop'))
   }, [])
 
@@ -10500,7 +10817,7 @@ export default function App() {
   }, [platform, activePanel])
 
   useEffect(() => {
-    if (platform === 'macos' && MAC_HIDDEN_PANELS.has(activePanel)) {
+    if (platform !== 'windows' && NON_WINDOWS_HIDDEN_PANELS.has(activePanel)) {
       setActivePanel('help')
     }
   }, [platform, activePanel])
@@ -10632,16 +10949,17 @@ export default function App() {
       case 'backups':  return <BackupsPanel device={selected} onNavigateToDevices={nav} />
       case 'adb':      return <AdbLogsPanel device={selected} onNavigateToDevices={nav} platform={platform} />
       case 'tv':       return <TVPanel device={selected} onNavigateToDevices={nav} />
-      case 'quest':    return <QuestPanel device={selected} onNavigateToDevices={nav} />
+      case 'quest':    return <QuestPanel device={selected} onNavigateToDevices={nav} platform={platform} />
       case 'files':    return <FilesPanel device={selected} onNavigateToDevices={nav} />
       case 'rom':      return <RomPanel device={selected} onNavigateToDevices={nav} />
       case 'general':  return <GeneralPanel device={selected} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'maintenance': return platform === 'android'
         ? <AndroidMaintenancePanel device={selected} props={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
         : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
-      case 'drivers':  return platform === 'android' ? <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} /> : <DriversPanel />
+      case 'drivers':  return platform === 'windows' ? <DriversPanel platform={platform} /> : <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} />
       case 'advanced': return <AdvancedPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'help':     return <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} mode="help" onOpenPanel={setActivePanel} />
+      case 'about':    return <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} mode="about" onOpenPanel={setActivePanel} />
       default:         return <PanelPlaceholder label={activePanel} />
     }
   }
@@ -10660,7 +10978,7 @@ export default function App() {
 
   const desktopNavSections = NAV_SECTIONS.map(section => ({
     ...section,
-    items: section.items.filter(item => !(platform === 'macos' && MAC_HIDDEN_PANELS.has(item.id))),
+    items: section.items.filter(item => !(platform !== 'windows' && NON_WINDOWS_HIDDEN_PANELS.has(item.id))),
   })).filter(section => section.items.length > 0)
 
   const currentNavItem = (platform === 'android' ? androidNavSections : desktopNavSections)
