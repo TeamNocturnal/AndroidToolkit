@@ -5,7 +5,7 @@ This document tracks focused follow-up work that should live outside the main RE
 ## Linux Support
 
 - [x] Add Linux `udev` setup docs so USB `adb` / `fastboot` access works without `sudo` where possible.
-- Validate Linux runtime behavior on `Debian`, `Fedora`, `Arch Linux`, and `openSUSE`.
+- Validate Linux runtime behavior on `Debian`, `Fedora`, `Arch Linux`, and `openSUSE`. Validation checklist: [LINUX_RUNTIME_VALIDATION.md](/Users/xs/Projects/AndroidToolkit/LINUX_RUNTIME_VALIDATION.md)
 - Decide which Linux bundle targets are first-class release artifacts: `AppImage`, `.deb`, `.rpm`, or a smaller initial set.
 - Decide whether Arch Linux should ship through `AppImage` only first or get a dedicated `AUR` / `PKGBUILD` flow.
 - Verify bundled Linux `adb` and `fastboot` compatibility on the supported distros.
