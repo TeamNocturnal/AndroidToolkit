@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "",
-        "width": 1540,
-        "height": 940,
+        "width": 1600,
+        "height": 1020,
         "minWidth": 1320,
         "minHeight": 820,
         "resizable": true,
