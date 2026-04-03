@@ -15,7 +15,25 @@ This document tracks focused follow-up work that should live outside the main RE
 ## Help & Docs
 
 - After the Help & Docs platform design is finalized, add OS gating so each platform setup card only shows on the OS the app is currently running on. Leave all platform cards visible during the current design pass.
+- [ ] In-app onboarding wizard for first-time users: step-by-step guide for enabling Developer Options and Wireless Debugging, not just a link to external docs.
 
 ## Maintenance
 
-- Fix live preview in Device Companion so the in-app stream renders correctly instead of showing the broken-image placeholder, and replace the blocked browser popup path with a real Tauri popout window. Current app output: `Unable to open live-view popout window.`
+- [x] Fix live preview in Device Companion — in-panel stream now renders via in-memory base64 frames, popout replaced with Tauri WebviewWindow using event-based frame delivery. Completed Beta 7.
+
+## Updates & Release
+
+- [ ] Wire up update checker to GitHub releases API: replace stub in App.jsx with fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest'), read .tag_name, compare against CURRENT_VERSION, show banner if newer. Placeholder UI already in place.
+- [ ] Persistent saved devices: move saved devices storage from localStorage to a JSON file on disk so devices survive app reinstalls and can be shared between machines. Desktop only.
+
+## Android (Paused)
+
+Android app development is paused. Existing Android build remains functional. Items below are tracked for when Android work resumes:
+
+- [ ] Fix window insets: status bar overlap at top, nav bar hiding bottom tab bar
+- [ ] Fix bottom tab bar cutting off page content
+- [ ] Android navigation redesign: portrait = bottom bar with hamburger + section name, landscape = side rail, drawer for all nav
+- [ ] Local split APK / XAPK install on Android
+- [ ] Local fastboot support on Android
+- [ ] Android Device Tweaks: WRITE_SETTINGS + one-time WRITE_SECURE_SETTINGS ADB grant for DPI, animation speed, DNS, font size, screen timeout
+- [ ] WiFi ADB for Android-to-Android device management
