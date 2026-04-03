@@ -19,7 +19,13 @@ This document tracks focused follow-up work that should live outside the main RE
 
 ## Maintenance
 
-- [x] Fix live preview in Device Companion — in-panel stream now renders via in-memory base64 frames, popout replaced with Tauri WebviewWindow using event-based frame delivery. Completed Beta 7.
+- [ ] Finish Device Companion live-stream transition: replace the current desktop preview path with a stable long-running video stream pipeline, harden reconnect handling, and verify popout reliability across supported desktop platforms.
+
+## Navigation & Layout
+
+- [ ] Reorganize the desktop sidebar sections for a cleaner information architecture.
+- [ ] Add icons next to each parent menu label: Devices, Apps, Media, Power Tools, and Pro Tools.
+- [ ] Keep Help & Docs and About outside a collapsible parent section so they are always visible.
 
 ## Updates & Release
 

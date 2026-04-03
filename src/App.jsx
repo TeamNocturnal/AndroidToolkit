@@ -10,6 +10,7 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
+const CURRENT_VERSION = '2.0.0-beta.7'
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
@@ -83,6 +84,259 @@ function previewPlatformOverride() {
     if (['android', 'macos', 'windows', 'linux', 'desktop'].includes(value)) return value
   } catch {}
   return null
+}
+
+function isLiveViewPopupMode() {
+  try {
+    return new URLSearchParams(window.location.search).get('liveview_popup') === '1'
+  } catch {}
+  return false
+}
+
+function liveViewPopupSerial() {
+  try {
+    return new URLSearchParams(window.location.search).get('serial') || ''
+  } catch {}
+  return ''
+}
+
+function decodeBase64Bytes(value) {
+  const binary = window.atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function concatBytes(...parts) {
+  const total = parts.reduce((sum, part) => sum + (part?.length || 0), 0)
+  const next = new Uint8Array(total)
+  let offset = 0
+  parts.forEach(part => {
+    if (!part?.length) return
+    next.set(part, offset)
+    offset += part.length
+  })
+  return next
+}
+
+function stripStartCode(unit) {
+  if (unit[0] === 0 && unit[1] === 0 && unit[2] === 1) return unit.slice(3)
+  if (unit[0] === 0 && unit[1] === 0 && unit[2] === 0 && unit[3] === 1) return unit.slice(4)
+  return unit
+}
+
+function splitAnnexBUnits(buffer) {
+  const markers = []
+  for (let i = 0; i < buffer.length - 3; i += 1) {
+    if (buffer[i] === 0 && buffer[i + 1] === 0) {
+      if (buffer[i + 2] === 1) {
+        markers.push(i)
+      } else if (buffer[i + 2] === 0 && buffer[i + 3] === 1) {
+        markers.push(i)
+      }
+    }
+  }
+  if (markers.length < 2) return { units: [], remainder: buffer }
+  const units = []
+  for (let i = 0; i < markers.length - 1; i += 1) {
+    const start = markers[i]
+    const end = markers[i + 1]
+    units.push(buffer.slice(start, end))
+  }
+  return { units, remainder: buffer.slice(markers[markers.length - 1]) }
+}
+
+function removeEmulationPrevention(bytes) {
+  const out = []
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (i >= 2 && bytes[i] === 0x03 && bytes[i - 1] === 0x00 && bytes[i - 2] === 0x00) continue
+    out.push(bytes[i])
+  }
+  return new Uint8Array(out)
+}
+
+function makeBitReader(bytes) {
+  let bitOffset = 0
+  return {
+    readBit() {
+      const byte = bytes[bitOffset >> 3]
+      const shift = 7 - (bitOffset & 7)
+      bitOffset += 1
+      return (byte >> shift) & 1
+    },
+    readBits(count) {
+      let value = 0
+      for (let i = 0; i < count; i += 1) value = (value << 1) | this.readBit()
+      return value
+    },
+    readUE() {
+      let zeros = 0
+      while (this.readBit() === 0) zeros += 1
+      let value = 1
+      for (let i = 0; i < zeros; i += 1) value = (value << 1) | this.readBit()
+      return value - 1
+    },
+    readSE() {
+      const codeNum = this.readUE()
+      const sign = codeNum & 1 ? 1 : -1
+      return sign * Math.ceil(codeNum / 2)
+    },
+  }
+}
+
+function parseSpsConfig(unit) {
+  const bytes = stripStartCode(unit)
+  if (!bytes?.length || (bytes[0] & 0x1f) !== 7 || bytes.length < 4) return null
+  const codec = `avc1.${[bytes[1], bytes[2], bytes[3]].map(value => value.toString(16).padStart(2, '0')).join('')}`
+  const rbsp = removeEmulationPrevention(bytes.slice(1))
+  const reader = makeBitReader(rbsp)
+  const profileIdc = reader.readBits(8)
+  reader.readBits(8)
+  reader.readBits(8)
+  reader.readUE()
+
+  if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134].includes(profileIdc)) {
+    const chromaFormatIdc = reader.readUE()
+    if (chromaFormatIdc === 3) reader.readBit()
+    reader.readUE()
+    reader.readUE()
+    reader.readBit()
+    if (reader.readBit()) {
+      const scalingCount = chromaFormatIdc !== 3 ? 8 : 12
+      for (let i = 0; i < scalingCount; i += 1) {
+        if (!reader.readBit()) continue
+        const size = i < 6 ? 16 : 64
+        let lastScale = 8
+        let nextScale = 8
+        for (let j = 0; j < size; j += 1) {
+          if (nextScale !== 0) {
+            nextScale = (lastScale + reader.readSE() + 256) % 256
+          }
+          lastScale = nextScale === 0 ? lastScale : nextScale
+        }
+      }
+    }
+  }
+
+  reader.readUE()
+  const picOrderCntType = reader.readUE()
+  if (picOrderCntType === 0) {
+    reader.readUE()
+  } else if (picOrderCntType === 1) {
+    reader.readBit()
+    reader.readSE()
+    reader.readSE()
+    const count = reader.readUE()
+    for (let i = 0; i < count; i += 1) reader.readSE()
+  }
+  reader.readUE()
+  reader.readBit()
+  const picWidthInMbsMinus1 = reader.readUE()
+  const picHeightInMapUnitsMinus1 = reader.readUE()
+  const frameMbsOnlyFlag = reader.readBit()
+  if (!frameMbsOnlyFlag) reader.readBit()
+  reader.readBit()
+  let cropLeft = 0
+  let cropRight = 0
+  let cropTop = 0
+  let cropBottom = 0
+  if (reader.readBit()) {
+    cropLeft = reader.readUE()
+    cropRight = reader.readUE()
+    cropTop = reader.readUE()
+    cropBottom = reader.readUE()
+  }
+  const width = (picWidthInMbsMinus1 + 1) * 16 - (cropLeft + cropRight) * 2
+  const height = (2 - frameMbsOnlyFlag) * (picHeightInMapUnitsMinus1 + 1) * 16 - (cropTop + cropBottom) * 2
+  return { codec, width, height }
+}
+
+function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
+  const state = {
+    supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
+    configured: false,
+    decoder: null,
+    remainder: new Uint8Array(0),
+    accessUnit: [],
+    hasVcl: false,
+    latestSps: null,
+    latestPps: null,
+    timestampUs: 0,
+    frameUs: 33_333,
+  }
+
+  if (!state.supported) {
+    onStatus?.('This desktop webview does not support the VideoDecoder API.')
+    return state
+  }
+
+  state.decoder = new window.VideoDecoder({
+    output: frame => {
+      onFrame?.(frame)
+    },
+    error: error => {
+      onStatus?.(`Decoder error: ${error?.message || error}`)
+    },
+  })
+
+  function flushAccessUnit(force = false) {
+    if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
+    if (!state.configured) {
+      const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
+      if (!spsConfig) return
+      state.decoder.configure({
+        codec: spsConfig.codec,
+        optimizeForLatency: true,
+        codedWidth: spsConfig.width,
+        codedHeight: spsConfig.height,
+      })
+      state.configured = true
+      onStatus?.(`Live stream active • ${new Date().toLocaleTimeString()}`)
+    }
+    const chunkData = concatBytes(...state.accessUnit)
+    const isKey = state.accessUnit.some(unit => ((stripStartCode(unit)[0] || 0) & 0x1f) === 5)
+    try {
+      state.decoder.decode(new window.EncodedVideoChunk({
+        type: isKey ? 'key' : 'delta',
+        timestamp: state.timestampUs,
+        data: chunkData,
+      }))
+      state.timestampUs += state.frameUs
+    } catch (error) {
+      onStatus?.(`Decoder rejected frame: ${error?.message || error}`)
+    }
+    state.accessUnit = []
+    state.hasVcl = false
+  }
+
+  state.pushChunk = payload => {
+    if (!payload?.data || payload.serial !== serial) return
+    const next = concatBytes(state.remainder, decodeBase64Bytes(payload.data))
+    const { units, remainder } = splitAnnexBUnits(next)
+    state.remainder = remainder
+    units.forEach(unit => {
+      const nal = stripStartCode(unit)
+      const nalType = nal[0] & 0x1f
+      if (nalType === 7) state.latestSps = unit
+      if (nalType === 8) state.latestPps = unit
+      if (nalType === 5 && !state.accessUnit.length) {
+        if (state.latestSps) state.accessUnit.push(state.latestSps)
+        if (state.latestPps) state.accessUnit.push(state.latestPps)
+      }
+      if ((nalType === 1 || nalType === 5) && state.hasVcl) {
+        flushAccessUnit()
+      }
+      state.accessUnit.push(unit)
+      if (nalType === 1 || nalType === 5) state.hasVcl = true
+    })
+  }
+
+  state.stop = () => {
+    flushAccessUnit(true)
+    state.decoder?.close()
+  }
+
+  return state
 }
 
 function parseLinuxOsRelease(text) {
@@ -174,18 +428,22 @@ const STATUS = {
 const NAV_SECTIONS = [
   {
     standalone: true,
+    icon: '⭐',
     label: 'GETTING STARTED',
     items: [
       { id: 'getting-started', icon: '⭐', label: 'Getting Started' },
     ],
   },
   {
+    standalone: true,
+    icon: '📱',
     label: 'DEVICES',
     items: [
       { id: 'devices', icon: '📱', label: 'Connected Devices' },
     ],
   },
   {
+    icon: '📦',
     label: 'APPS',
     items: [
       { id: 'install', icon: '📦', label: 'Install APK'  },
@@ -195,23 +453,27 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    icon: '📺',
     label: 'MEDIA',
     items: [
       { id: 'tv',       icon: '📺', label: 'TV & Streaming'    },
     ],
   },
   {
+    icon: '🧰',
     label: 'POWER TOOLS',
     items: [
       { id: 'files',    icon: '📂', label: 'File Browser'      },
       { id: 'backups',  icon: '💾', label: 'Backup & Restore'  },
       { id: 'maintenance', icon: '🧹', label: 'Maintenance'    },
+      { id: 'companion', icon: '🪞', label: 'Screen Mirror' },
       { id: 'general',  icon: '🔧', label: 'Tweaks'            },
       { id: 'quest',    icon: '🥽', label: 'Quest Tools'       },
       { id: 'rom',      icon: '⚡', label: 'ROM Tools'         },
     ],
   },
   {
+    icon: '⚙️',
     label: 'PRO TOOLS',
     items: [
       { id: 'adb',      icon: '🖥️', label: 'ADB & Shell'     },
@@ -220,7 +482,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'HELP',
+    standalone: true,
     items: [
       { id: 'help', icon: '❓', label: 'Help & Docs' },
       { id: 'about', icon: 'ℹ️', label: 'About' },
@@ -237,6 +499,7 @@ const ANDROID_MENU_DESCRIPTIONS = {
   backups: 'App backups plus SMS and data exports',
   devices: 'View this device and status',
   maintenance: 'Safe cleanup, storage scans, and device-care tools',
+  companion: 'Live view, screenshots, and screen mirror tools',
   files: 'Browse files, move content, and manage transfers',
   adb: 'Shell commands, logs, and advanced ADB tools',
   rom: 'ROM and flashing tools',
@@ -247,7 +510,7 @@ const ANDROID_MENU_DESCRIPTIONS = {
   help: 'Setup guides and documentation',
 }
 
-const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom'])
+const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom', 'companion'])
 const NON_WINDOWS_HIDDEN_PANELS = new Set(['drivers'])
 const ANDROID_EXTRA_NAV_ITEMS = [
   { id: 'maintenance', icon: '🧹', label: 'Maintenance' },
@@ -471,6 +734,205 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
         </pre>
       )}
     </div>
+  )
+}
+
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false }) {
+  const canvasRef = useRef(null)
+  const snapshotRef = useRef(null)
+  const gestureRef = useRef(null)
+  const [hasVideo, setHasVideo] = useState(false)
+  const [decoderStatus, setDecoderStatus] = useState('')
+
+  function activeSurfaceMetrics() {
+    if (hasVideo && canvasRef.current) {
+      const canvas = canvasRef.current
+      return {
+        node: canvas,
+        width: canvas.width || 0,
+        height: canvas.height || 0,
+      }
+    }
+    if (!hasVideo && snapshotRef.current) {
+      const image = snapshotRef.current
+      return {
+        node: image,
+        width: image.naturalWidth || 0,
+        height: image.naturalHeight || 0,
+      }
+    }
+    return null
+  }
+
+  async function sendTouchCommand(args) {
+    if (!serial || !interactive) return
+    try {
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', ...args.map(value => String(value))] })
+    } catch (error) {
+      setDecoderStatus(`Touch input failed: ${error}`)
+    }
+  }
+
+  function pointerToDeviceCoords(event) {
+    const metrics = activeSurfaceMetrics()
+    if (!metrics?.node || !metrics.width || !metrics.height) return null
+    const rect = metrics.node.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null
+    return {
+      x: Math.round((x / rect.width) * metrics.width),
+      y: Math.round((y / rect.height) * metrics.height),
+    }
+  }
+
+  function handlePointerDown(event) {
+    if (!interactive || !serial || !running) return
+    const point = pointerToDeviceCoords(event)
+    if (!point) return
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+      startedAt: Date.now(),
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function handlePointerMove(event) {
+    if (!interactive || !gestureRef.current || gestureRef.current.pointerId !== event.pointerId) return
+    const point = pointerToDeviceCoords(event)
+    if (!point) return
+    gestureRef.current.endX = point.x
+    gestureRef.current.endY = point.y
+  }
+
+  async function handlePointerUp(event) {
+    if (!interactive || !gestureRef.current || gestureRef.current.pointerId !== event.pointerId) return
+    const point = pointerToDeviceCoords(event)
+    const gesture = gestureRef.current
+    gestureRef.current = null
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    const endX = point?.x ?? gesture.endX
+    const endY = point?.y ?? gesture.endY
+    const distance = Math.hypot(endX - gesture.startX, endY - gesture.startY)
+    const duration = Math.max(80, Date.now() - gesture.startedAt)
+    if (distance < 12) {
+      await sendTouchCommand(['tap', gesture.startX, gesture.startY])
+    } else {
+      await sendTouchCommand(['swipe', gesture.startX, gesture.startY, endX, endY, duration])
+    }
+  }
+
+  useEffect(() => {
+    setHasVideo(false)
+    setDecoderStatus('')
+    if (!serial) return undefined
+
+    const decoder = createLiveStreamDecoder({
+      serial,
+      onStatus: message => setDecoderStatus(message || ''),
+      onFrame: frame => {
+        const canvas = canvasRef.current
+        if (!canvas) {
+          frame.close()
+          return
+        }
+        const width = frame.displayWidth || frame.codedWidth || 1
+        const height = frame.displayHeight || frame.codedHeight || 1
+        if (canvas.width !== width) canvas.width = width
+        if (canvas.height !== height) canvas.height = height
+        const ctx = canvas.getContext('2d', { alpha: false })
+        ctx?.drawImage(frame, 0, 0, width, height)
+        frame.close()
+        setHasVideo(true)
+      },
+    })
+
+    let unlistenChunk
+    let unlistenStatus
+    listen('live-stream:chunk', event => decoder.pushChunk?.(event.payload || {})).then(fn => {
+      unlistenChunk = fn
+    })
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (payload.message) setDecoderStatus(payload.message)
+      if (payload.state === 'stopped') setHasVideo(false)
+    }).then(fn => {
+      unlistenStatus = fn
+    })
+
+    return () => {
+      unlistenChunk?.()
+      unlistenStatus?.()
+      decoder.stop?.()
+    }
+  }, [serial])
+
+  return (
+    <>
+      <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          style={{
+            display: hasVideo ? 'block' : 'none',
+            width: 'auto',
+            height: 'auto',
+            maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+            maxHeight: '100%',
+            borderRadius: 20,
+            border: '1px solid var(--border)',
+            background: '#111',
+            objectFit: 'contain',
+            touchAction: interactive ? 'none' : 'auto',
+            cursor: interactive && running ? 'crosshair' : 'default',
+          }}
+        />
+        {!hasVideo && snapshotSrc && (
+          <img
+            ref={snapshotRef}
+            key={snapshotSrc}
+            src={snapshotSrc}
+            alt="Connected device preview"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            style={{
+              display: 'block',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+              maxHeight: '100%',
+              borderRadius: 20,
+              border: '1px solid var(--border)',
+              objectFit: 'contain',
+              touchAction: interactive ? 'none' : 'auto',
+              cursor: interactive && running ? 'crosshair' : 'default',
+            }}
+          />
+        )}
+        {!hasVideo && !snapshotSrc && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
+            {running ? 'Waiting for first video frame…' : emptyLabel}
+          </div>
+        )}
+      </div>
+      {decoderStatus && (
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          {decoderStatus}
+        </div>
+      )}
+      {interactive && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Click to tap, or click and drag to swipe.
+        </div>
+      )}
+    </>
   )
 }
 
@@ -6105,20 +6567,12 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
   const [open, setOpen] = useState({
     cleanup: true,
     debloat: true,
-    companion: true,
     battery: true,
   })
-  const [liveViewRunning, setLiveViewRunning] = useState(false)
-  const [liveViewMs, setLiveViewMs] = useState('500')
-  const [liveViewSrc, setLiveViewSrc] = useState('')
-  const [liveViewStatus, setLiveViewStatus] = useState('Idle')
   const [cleanupStatus, setCleanupStatus] = useState({ title: 'Idle', detail: 'Run a cleanup action to see live progress and a completion summary here.', tone: 'neutral' })
   const [cleanupHistory, setCleanupHistory] = useState([])
   const [cleanupFindings, setCleanupFindings] = useState([])
   const [cleanupInsight, setCleanupInsight] = useState('Run Analyze Junk to see what NTK thinks is worth cleaning before you delete anything.')
-  const mirrorBusyRef = useRef(false)
-  const mirrorPopupRef = useRef(null)
-  const mirrorFailRef = useRef(0)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -6170,18 +6624,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     } finally {
       setRunning(false)
     }
-  }
-
-  async function runDeviceShell(command, label, confirmMessage = null) {
-    const runner = () => runAdb(['-s', serial, 'shell', 'sh', '-c', command], label)
-    if (confirmMessage) return confirmRun(confirmMessage, runner)
-    return runner()
-  }
-
-  async function ensureDeviceAwake() {
-    if (!serial) return
-    await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'] })
-    await invoke('run_adb', { args: ['-s', serial, 'shell', 'wm', 'dismiss-keyguard'] }).catch(() => null)
   }
 
   function summarizeCleanupResult(title, result) {
@@ -6256,126 +6698,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
       append(`Error: ${msg}`)
     }
   }
-
-  async function captureScreenshot() {
-    if (!serial || running) return
-    append('$ Capture screenshot')
-    setRunning(true)
-    try {
-      await ensureDeviceAwake()
-      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screencap', '/sdcard/ntk_capture.png'] })
-      const dl = await downloadDir()
-      const dest = await pathJoin(dl, `ntk_screenshot_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.png`)
-      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.png', dest] })
-      append(`Saved screenshot to: ${dest}`)
-    } catch (error) {
-      append(`Error: ${error}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function recordScreen() {
-    if (!serial || running) return
-    append('$ Record 10 second screen capture')
-    setRunning(true)
-    try {
-      await ensureDeviceAwake()
-      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screenrecord', '--time-limit', '10', '/sdcard/ntk_capture.mp4'] })
-      const dl = await downloadDir()
-      const dest = await pathJoin(dl, `ntk_screenrecord_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.mp4`)
-      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.mp4', dest] })
-      append(`Saved recording to: ${dest}`)
-    } catch (error) {
-      append(`Error: ${error}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  function updateMirrorPopup(b64, status = null) {
-    const win = mirrorPopupRef.current
-    if (!win) return
-    win.emit('ntk-live-frame', { b64: b64 || null, status }).catch(() => {
-      mirrorPopupRef.current = null
-    })
-  }
-
-  function isDisconnectError(msg) {
-    const s = String(msg).toLowerCase()
-    return s.includes('not found') || s.includes('no devices') || s.includes('device offline') ||
-           s.includes('connection reset') || s.includes('protocol fault') || s.includes('error: device')
-  }
-
-  async function captureLiveFrame() {
-    if (!serial || mirrorBusyRef.current) return
-    mirrorBusyRef.current = true
-    try {
-      await ensureDeviceAwake()
-      const res = await invoke('capture_screen_frame', { serial })
-      if (!res?.ok || !res?.b64) {
-        throw new Error(res?.stderr || 'Failed to capture live frame.')
-      }
-      mirrorFailRef.current = 0
-      const src = `data:image/png;base64,${res.b64}`
-      setLiveViewSrc(src)
-      setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
-      updateMirrorPopup(res.b64, `Connected to ${device?.model || serial}`)
-    } catch (error) {
-      mirrorFailRef.current += 1
-      const errMsg = String(error)
-      const disconnected = isDisconnectError(errMsg) || mirrorFailRef.current >= 5
-      if (disconnected) {
-        const status = 'Device disconnected.'
-        setLiveViewRunning(false)
-        setLiveViewSrc('')
-        setLiveViewStatus(status)
-        append(status)
-        updateMirrorPopup(null, status)
-        mirrorFailRef.current = 0
-      } else {
-        const status = `Stream error: ${errMsg}`
-        setLiveViewStatus(status)
-        updateMirrorPopup(null, status)
-      }
-    } finally {
-      mirrorBusyRef.current = false
-    }
-  }
-
-  async function openLivePopup() {
-    const label = 'ntk-live-view'
-    const existing = await WebviewWindow.getByLabel(label)
-    if (existing) {
-      existing.setFocus().catch(() => {})
-      mirrorPopupRef.current = existing
-      return
-    }
-    const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
-    const win = new WebviewWindow(label, {
-      url: 'liveview.html',
-      title,
-      width: 430,
-      height: 860,
-      minWidth: 320,
-      minHeight: 480,
-      resizable: true,
-      decorations: true,
-    })
-    win.once('tauri://error', (e) => {
-      append(`Live-view popout error: ${e.payload ?? e}`)
-      mirrorPopupRef.current = null
-    })
-    mirrorPopupRef.current = win
-  }
-
-  useEffect(() => {
-    if (!liveViewRunning || noDevice) return
-    captureLiveFrame()
-    const interval = Math.max(250, Number(liveViewMs) || 500)
-    const id = window.setInterval(captureLiveFrame, interval)
-    return () => window.clearInterval(id)
-  }, [liveViewRunning, liveViewMs, serial])
 
   const sectionStyle = {
     background: 'var(--bg-surface)',
@@ -6539,54 +6861,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
           </div>
         </LogSection>
 
-        <LogSection title="Device Companion" dot="var(--accent)" open={open.companion} onToggle={() => toggle('companion')}>
-          <div style={sectionStyle}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-              Built-in capture and viewing tools for the connected device. NTK now keeps the viewer running as a continuous in-app stream loop, and you can pop it out into its own virtual phone window.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
-              <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
-              <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14, alignItems: 'start' }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>Live Stream</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <select value={liveViewMs} onChange={e => setLiveViewMs(e.target.value)}
-                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
-                    <option value="250">Responsive</option>
-                    <option value="500">Balanced</option>
-                    <option value="1000">Battery saver</option>
-                  </select>
-                  <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
-                    {liveViewRunning ? 'Stop' : 'Start Stream'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
-                  <button className="btn-ghost" style={actionButtonStyle} disabled={!liveViewSrc && !liveViewRunning} onClick={openLivePopup}>Pop Out</button>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {liveViewStatus}
-                </div>
-              </div>
-              <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16 }}>
-                {liveViewSrc ? (
-                  <img src={liveViewSrc} alt="Connected device live view" style={{ width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }} />
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
-                    Start Stream to open a built-in virtual phone screen for the connected device.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </LogSection>
-
         <LogSection title="Battery & Performance" dot="var(--accent-green)" open={open.battery} onToggle={() => toggle('battery')}>
           <div style={sectionStyle}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -6607,6 +6881,302 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
             {output || 'Run a maintenance action to see output here.'}
           </pre>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel }) {
+  const serial = device?.serial
+  const noDevice = !device || device.status !== 'device'
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState('')
+  const outputRef = useRef(null)
+  const [liveViewRunning, setLiveViewRunning] = useState(false)
+  const [liveViewSrc, setLiveViewSrc] = useState('')
+  const [liveViewStatus, setLiveViewStatus] = useState('Idle')
+  const mirrorPopupRef = useRef(null)
+
+  function append(text) {
+    setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
+    setTimeout(() => {
+      if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
+    }, 30)
+  }
+
+  async function runAdb(args, label) {
+    if (label) append(`$ ${label}`)
+    setRunning(true)
+    try {
+      const res = await invoke('run_adb', { args })
+      const text = [res.stdout, res.stderr].filter(Boolean).map(s => s.trim()).join('\n').trim() || 'Done.'
+      append(text)
+      return res
+    } catch (error) {
+      append(`Error: ${error}`)
+      return null
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function ensureDeviceAwake() {
+    if (!serial) return
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'] })
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'wm', 'dismiss-keyguard'] }).catch(() => null)
+  }
+
+  async function runDeviceShell(command, label) {
+    return runAdb(['-s', serial, 'shell', 'sh', '-c', command], label)
+  }
+
+  async function captureScreenshot() {
+    if (!serial || running) return
+    append('$ Capture screenshot')
+    setRunning(true)
+    try {
+      await ensureDeviceAwake()
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screencap', '/sdcard/ntk_capture.png'] })
+      const dl = await downloadDir()
+      const dest = await pathJoin(dl, `ntk_screenshot_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.png`)
+      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.png', dest] })
+      append(`Saved screenshot to: ${dest}`)
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function recordScreen() {
+    if (!serial || running) return
+    append('$ Record 10 second screen capture')
+    setRunning(true)
+    try {
+      await ensureDeviceAwake()
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screenrecord', '--time-limit', '10', '/sdcard/ntk_capture.mp4'] })
+      const dl = await downloadDir()
+      const dest = await pathJoin(dl, `ntk_screenrecord_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.mp4`)
+      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.mp4', dest] })
+      append(`Saved recording to: ${dest}`)
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  function updateMirrorPopup(b64, status = null) {
+    const win = mirrorPopupRef.current
+    if (!win) return
+    if (status) {
+      win.emit('live-stream:status', { state: 'info', message: status }).catch(() => {
+        mirrorPopupRef.current = null
+      })
+    }
+  }
+
+  async function restartLiveStream(reason = null) {
+    if (!serial || noDevice || !liveViewRunning) return
+    if (reason) setLiveViewStatus(reason)
+    await invoke('stop_live_stream').catch(() => null)
+    await new Promise(resolve => window.setTimeout(resolve, 120))
+    await invoke('start_live_stream', { serial })
+    updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+  }
+
+  async function captureLiveFrame() {
+    if (!serial) return
+    try {
+      await ensureDeviceAwake()
+      const res = await invoke('capture_screen_frame', { serial })
+      if (!res?.ok || !res?.b64) {
+        throw new Error(res?.stderr || 'Failed to capture live frame.')
+      }
+      const normalizedB64 = String(res.b64).trim()
+      const src = normalizedB64.startsWith('data:')
+        ? normalizedB64
+        : `data:image/png;base64,${normalizedB64}`
+      setLiveViewSrc(src)
+      setLiveViewStatus(`Snapshot captured • ${new Date().toLocaleTimeString()}`)
+    } catch (error) {
+      const status = `Snapshot error: ${error}`
+      setLiveViewStatus(status)
+      append(status)
+    }
+  }
+
+  async function openLivePopup() {
+    const label = 'ntk-live-view'
+    const existing = await WebviewWindow.getByLabel(label)
+    if (existing) {
+      existing.setFocus().catch(() => {})
+      mirrorPopupRef.current = existing
+      if (liveViewRunning) {
+        await restartLiveStream('Refreshing stream for pop-out window…')
+      }
+      return
+    }
+    const title = `Nocturnal Screen Mirror${device?.model ? ` • ${device.model}` : ''}`
+    const win = new WebviewWindow(label, {
+      url: `/?liveview_popup=1&serial=${encodeURIComponent(serial)}`,
+      title,
+      width: 430,
+      height: 860,
+      minWidth: 320,
+      minHeight: 480,
+      resizable: true,
+      decorations: true,
+    })
+    win.once('tauri://error', (e) => {
+      append(`Live-view popout error: ${e.payload ?? e}`)
+      mirrorPopupRef.current = null
+    })
+    mirrorPopupRef.current = win
+    if (liveViewRunning) {
+      await new Promise(resolve => window.setTimeout(resolve, 180))
+      await restartLiveStream('Refreshing stream for pop-out window…')
+    }
+  }
+
+  useEffect(() => {
+    if (!liveViewRunning || noDevice || !serial) return undefined
+    setLiveViewStatus('Starting live stream…')
+    invoke('start_live_stream', { serial })
+      .then(() => updateMirrorPopup(null, `Connected to ${device?.model || serial}`))
+      .catch(error => {
+        const message = `Live stream failed to start: ${error}`
+        setLiveViewStatus(message)
+        append(message)
+        setLiveViewRunning(false)
+      })
+    return () => {
+      invoke('stop_live_stream').catch(() => null)
+    }
+  }, [liveViewRunning, serial, noDevice, device?.model])
+
+  useEffect(() => {
+    let unlisten
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (!payload.message) return
+      setLiveViewStatus(payload.message)
+      if (payload.state === 'stopped') setLiveViewRunning(false)
+    }).then(fn => {
+      unlisten = fn
+    })
+    return () => unlisten?.()
+  }, [])
+
+  const sectionStyle = {
+    background: 'var(--bg-surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    padding: '16px',
+  }
+
+  const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
+
+  return (
+    <div className="panel-content">
+      <div className="panel-header-row">
+        <div style={{ minWidth: 0 }}>
+          <div className="panel-header-accent" />
+          <h1 className="panel-header">Screen Mirror</h1>
+        </div>
+        {noDevice && (
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            Connect Device
+          </button>
+        )}
+      </div>
+
+      <div className="panel-scroll">
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(20,184,166,0.09), rgba(59,130,246,0.05))',
+          border: '1px solid rgba(20,184,166,0.18)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '18px 16px',
+          marginBottom: 18,
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+            Desktop Screen Mirror
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            Built-in capture and viewing tools for the connected device, including live streaming, screenshots, screen recording, and a detachable virtual phone window.
+          </div>
+        </div>
+
+        {noDevice && (
+          <div className="warning-banner" style={{ marginBottom: 18 }}>
+            <span>No device connected — Screen Mirror actions are disabled.</span>
+            <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>View Devices</button>
+          </div>
+        )}
+
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+            NTK keeps the viewer running as a continuous in-app stream loop, and you can pop it out into its own virtual phone window.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
+            <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
+            <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14, alignItems: 'start' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>Live Stream</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
+                  {liveViewRunning ? 'Stop' : 'Start Stream'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
+                <button className="btn-ghost" style={actionButtonStyle} disabled={!liveViewSrc && !liveViewRunning} onClick={openLivePopup}>Pop Out</button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {liveViewStatus}
+              </div>
+            </div>
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive />
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+            Screen Mirror Output
+          </div>
+          <pre ref={outputRef} style={{ margin: 0, minHeight: 220, maxHeight: 360, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            {output || 'Run a Screen Mirror action to see output here.'}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LiveViewPopupWindow() {
+  const serial = liveViewPopupSerial()
+
+  return (
+    <div style={{
+      background: '#0b0b0f',
+      color: '#fff',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
+        Nocturnal Screen Mirror
+      </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
+        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." maxDisplayWidth={null} interactive />
       </div>
     </div>
   )
@@ -10833,7 +11403,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function MainApp() {
   const [devices, setDevices]     = useState([])
   const [ready, setReady]         = useState(false)
   const [selected, setSelected]   = useState(null)
@@ -10849,11 +11419,28 @@ export default function App() {
   const [savedDeviceHistory, setSavedDeviceHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nocturnal_saved_device_history') || '[]') } catch { return [] }
   })
-  const [desktopNavOpen, setDesktopNavOpen] = useState(() => Object.fromEntries(NAV_SECTIONS.map(section => [section.label, true])))
+  const [desktopNavOpen, setDesktopNavOpen] = useState(() => Object.fromEntries(NAV_SECTIONS.map(section => [section.label, false])))
   const [pairSectionOpen, setPairSectionOpen] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [orientation, setOrientation] = useState('portrait')
   const androidHistoryRef = useRef({ ready: false, syncingPop: false, key: '' })
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false)
+  const [latestVersion, setLatestVersion] = useState('')
+
+  function dismissUpdateBanner() {
+    sessionStorage.setItem('updateBannerDismissed', 'dismissed')
+    setShowUpdateBanner(false)
+  }
+
+  useEffect(() => {
+    if (sessionStorage.getItem('updateBannerDismissed')) return
+    // TODO: replace stub with fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest') and read .tag_name
+    const latest = '2.0.0-beta.7'
+    if (latest !== CURRENT_VERSION) {
+      setLatestVersion(latest)
+      setShowUpdateBanner(true)
+    }
+  }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('nocturnal_saved_devices')
@@ -11066,7 +11653,8 @@ export default function App() {
       case 'general':  return <GeneralPanel device={selected} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'maintenance': return platform === 'android'
         ? <AndroidMaintenancePanel device={selected} props={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
-        : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
+        : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} />
+      case 'companion': return <DesktopDeviceCompanionPanel device={selected} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
       case 'drivers':  return platform === 'windows' ? <DriversPanel platform={platform} /> : <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} />
       case 'advanced': return <AdvancedPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'help':     return <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} mode="help" onOpenPanel={setActivePanel} />
@@ -11102,6 +11690,32 @@ export default function App() {
     <div className="app-layout">
       {showWelcome && <WelcomeScreen onDismiss={() => setShowWelcome(false)} />}
       <Titlebar devices={devices} scanning={scanning} onScan={scan} theme={theme} onTheme={setTheme} platform={platform} />
+      {showUpdateBanner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '7px 16px',
+          background: 'var(--bg-elevated)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}>
+          <span style={{ flex: 1, color: 'var(--text-primary)' }}>
+            A new version of Android Toolkit is available — v{latestVersion}
+          </span>
+          <button
+            onClick={() => openUrl('https://team-nocturnal.com')}
+            style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 600 }}
+          >
+            Download
+          </button>
+          <button
+            onClick={dismissUpdateBanner}
+            style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+            aria-label="Dismiss update banner"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="body-layout">
 
         {/* Sidebar — desktop only */}
@@ -11116,7 +11730,10 @@ export default function App() {
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                       onClick={() => setDesktopNavOpen(prev => ({ ...prev, [section.label]: !prev[section.label] }))}
                     >
-                      <span>{section.label}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {section.icon && <span>{section.icon}</span>}
+                        <span>{section.label}</span>
+                      </span>
                       <span style={{ fontSize: 9, color: 'var(--text-muted)', transform: desktopNavOpen[section.label] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
                     </div>
                   )}
@@ -11390,4 +12007,8 @@ export default function App() {
       )}
     </div>
   )
+}
+
+export default function App() {
+  return isLiveViewPopupMode() ? <LiveViewPopupWindow /> : <MainApp />
 }
