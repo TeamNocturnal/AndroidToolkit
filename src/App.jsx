@@ -86,6 +86,13 @@ function previewPlatformOverride() {
   return null
 }
 
+function isLiveViewPopupMode() {
+  try {
+    return new URLSearchParams(window.location.search).get('liveview_popup') === '1'
+  } catch {}
+  return false
+}
+
 function parseLinuxOsRelease(text) {
   const values = {}
   String(text || '').split('\n').forEach(line => {
@@ -207,6 +214,7 @@ const NAV_SECTIONS = [
       { id: 'files',    icon: '📂', label: 'File Browser'      },
       { id: 'backups',  icon: '💾', label: 'Backup & Restore'  },
       { id: 'maintenance', icon: '🧹', label: 'Maintenance'    },
+      { id: 'companion', icon: '🪞', label: 'Device Companion' },
       { id: 'general',  icon: '🔧', label: 'Tweaks'            },
       { id: 'quest',    icon: '🥽', label: 'Quest Tools'       },
       { id: 'rom',      icon: '⚡', label: 'ROM Tools'         },
@@ -238,6 +246,7 @@ const ANDROID_MENU_DESCRIPTIONS = {
   backups: 'App backups plus SMS and data exports',
   devices: 'View this device and status',
   maintenance: 'Safe cleanup, storage scans, and device-care tools',
+  companion: 'Live view, screenshots, and device companion tools',
   files: 'Browse files, move content, and manage transfers',
   adb: 'Shell commands, logs, and advanced ADB tools',
   rom: 'ROM and flashing tools',
@@ -248,7 +257,7 @@ const ANDROID_MENU_DESCRIPTIONS = {
   help: 'Setup guides and documentation',
 }
 
-const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom'])
+const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom', 'companion'])
 const NON_WINDOWS_HIDDEN_PANELS = new Set(['drivers'])
 const ANDROID_EXTRA_NAV_ITEMS = [
   { id: 'maintenance', icon: '🧹', label: 'Maintenance' },
@@ -6106,20 +6115,12 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
   const [open, setOpen] = useState({
     cleanup: true,
     debloat: true,
-    companion: true,
     battery: true,
   })
-  const [liveViewRunning, setLiveViewRunning] = useState(false)
-  const [liveViewMs, setLiveViewMs] = useState('500')
-  const [liveViewSrc, setLiveViewSrc] = useState('')
-  const [liveViewStatus, setLiveViewStatus] = useState('Idle')
   const [cleanupStatus, setCleanupStatus] = useState({ title: 'Idle', detail: 'Run a cleanup action to see live progress and a completion summary here.', tone: 'neutral' })
   const [cleanupHistory, setCleanupHistory] = useState([])
   const [cleanupFindings, setCleanupFindings] = useState([])
   const [cleanupInsight, setCleanupInsight] = useState('Run Analyze Junk to see what NTK thinks is worth cleaning before you delete anything.')
-  const mirrorBusyRef = useRef(false)
-  const mirrorPopupRef = useRef(null)
-  const mirrorFailRef = useRef(0)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -6171,18 +6172,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     } finally {
       setRunning(false)
     }
-  }
-
-  async function runDeviceShell(command, label, confirmMessage = null) {
-    const runner = () => runAdb(['-s', serial, 'shell', 'sh', '-c', command], label)
-    if (confirmMessage) return confirmRun(confirmMessage, runner)
-    return runner()
-  }
-
-  async function ensureDeviceAwake() {
-    if (!serial) return
-    await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'] })
-    await invoke('run_adb', { args: ['-s', serial, 'shell', 'wm', 'dismiss-keyguard'] }).catch(() => null)
   }
 
   function summarizeCleanupResult(title, result) {
@@ -6257,126 +6246,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
       append(`Error: ${msg}`)
     }
   }
-
-  async function captureScreenshot() {
-    if (!serial || running) return
-    append('$ Capture screenshot')
-    setRunning(true)
-    try {
-      await ensureDeviceAwake()
-      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screencap', '/sdcard/ntk_capture.png'] })
-      const dl = await downloadDir()
-      const dest = await pathJoin(dl, `ntk_screenshot_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.png`)
-      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.png', dest] })
-      append(`Saved screenshot to: ${dest}`)
-    } catch (error) {
-      append(`Error: ${error}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function recordScreen() {
-    if (!serial || running) return
-    append('$ Record 10 second screen capture')
-    setRunning(true)
-    try {
-      await ensureDeviceAwake()
-      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screenrecord', '--time-limit', '10', '/sdcard/ntk_capture.mp4'] })
-      const dl = await downloadDir()
-      const dest = await pathJoin(dl, `ntk_screenrecord_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.mp4`)
-      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.mp4', dest] })
-      append(`Saved recording to: ${dest}`)
-    } catch (error) {
-      append(`Error: ${error}`)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  function updateMirrorPopup(b64, status = null) {
-    const win = mirrorPopupRef.current
-    if (!win) return
-    win.emit('ntk-live-frame', { b64: b64 || null, status }).catch(() => {
-      mirrorPopupRef.current = null
-    })
-  }
-
-  function isDisconnectError(msg) {
-    const s = String(msg).toLowerCase()
-    return s.includes('not found') || s.includes('no devices') || s.includes('device offline') ||
-           s.includes('connection reset') || s.includes('protocol fault') || s.includes('error: device')
-  }
-
-  async function captureLiveFrame() {
-    if (!serial || mirrorBusyRef.current) return
-    mirrorBusyRef.current = true
-    try {
-      await ensureDeviceAwake()
-      const res = await invoke('capture_screen_frame', { serial })
-      if (!res?.ok || !res?.b64) {
-        throw new Error(res?.stderr || 'Failed to capture live frame.')
-      }
-      mirrorFailRef.current = 0
-      const src = `data:image/png;base64,${res.b64}`
-      setLiveViewSrc(src)
-      setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
-      updateMirrorPopup(res.b64, `Connected to ${device?.model || serial}`)
-    } catch (error) {
-      mirrorFailRef.current += 1
-      const errMsg = String(error)
-      const disconnected = isDisconnectError(errMsg) || mirrorFailRef.current >= 5
-      if (disconnected) {
-        const status = 'Device disconnected.'
-        setLiveViewRunning(false)
-        setLiveViewSrc('')
-        setLiveViewStatus(status)
-        append(status)
-        updateMirrorPopup(null, status)
-        mirrorFailRef.current = 0
-      } else {
-        const status = `Stream error: ${errMsg}`
-        setLiveViewStatus(status)
-        updateMirrorPopup(null, status)
-      }
-    } finally {
-      mirrorBusyRef.current = false
-    }
-  }
-
-  async function openLivePopup() {
-    const label = 'ntk-live-view'
-    const existing = await WebviewWindow.getByLabel(label)
-    if (existing) {
-      existing.setFocus().catch(() => {})
-      mirrorPopupRef.current = existing
-      return
-    }
-    const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
-    const win = new WebviewWindow(label, {
-      url: 'liveview.html',
-      title,
-      width: 430,
-      height: 860,
-      minWidth: 320,
-      minHeight: 480,
-      resizable: true,
-      decorations: true,
-    })
-    win.once('tauri://error', (e) => {
-      append(`Live-view popout error: ${e.payload ?? e}`)
-      mirrorPopupRef.current = null
-    })
-    mirrorPopupRef.current = win
-  }
-
-  useEffect(() => {
-    if (!liveViewRunning || noDevice) return
-    captureLiveFrame()
-    const interval = Math.max(250, Number(liveViewMs) || 500)
-    const id = window.setInterval(captureLiveFrame, interval)
-    return () => window.clearInterval(id)
-  }, [liveViewRunning, liveViewMs, serial])
 
   const sectionStyle = {
     background: 'var(--bg-surface)',
@@ -6540,54 +6409,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
           </div>
         </LogSection>
 
-        <LogSection title="Device Companion" dot="var(--accent)" open={open.companion} onToggle={() => toggle('companion')}>
-          <div style={sectionStyle}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-              Built-in capture and viewing tools for the connected device. NTK now keeps the viewer running as a continuous in-app stream loop, and you can pop it out into its own virtual phone window.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
-              <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
-              <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
-              <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14, alignItems: 'start' }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>Live Stream</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <select value={liveViewMs} onChange={e => setLiveViewMs(e.target.value)}
-                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
-                    <option value="250">Responsive</option>
-                    <option value="500">Balanced</option>
-                    <option value="1000">Battery saver</option>
-                  </select>
-                  <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
-                    {liveViewRunning ? 'Stop' : 'Start Stream'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
-                  <button className="btn-ghost" style={actionButtonStyle} disabled={!liveViewSrc && !liveViewRunning} onClick={openLivePopup}>Pop Out</button>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {liveViewStatus}
-                </div>
-              </div>
-              <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16 }}>
-                {liveViewSrc ? (
-                  <img src={liveViewSrc} alt="Connected device live view" style={{ width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }} />
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
-                    Start Stream to open a built-in virtual phone screen for the connected device.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </LogSection>
-
         <LogSection title="Battery & Performance" dot="var(--accent-green)" open={open.battery} onToggle={() => toggle('battery')}>
           <div style={sectionStyle}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -6608,6 +6429,340 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
             {output || 'Run a maintenance action to see output here.'}
           </pre>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel }) {
+  const serial = device?.serial
+  const noDevice = !device || device.status !== 'device'
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState('')
+  const outputRef = useRef(null)
+  const [liveViewRunning, setLiveViewRunning] = useState(false)
+  const [liveViewMs, setLiveViewMs] = useState('500')
+  const [liveViewSrc, setLiveViewSrc] = useState('')
+  const [liveViewStatus, setLiveViewStatus] = useState('Idle')
+  const mirrorBusyRef = useRef(false)
+  const mirrorPopupRef = useRef(null)
+  const mirrorFailRef = useRef(0)
+
+  function append(text) {
+    setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
+    setTimeout(() => {
+      if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
+    }, 30)
+  }
+
+  async function runAdb(args, label) {
+    if (label) append(`$ ${label}`)
+    setRunning(true)
+    try {
+      const res = await invoke('run_adb', { args })
+      const text = [res.stdout, res.stderr].filter(Boolean).map(s => s.trim()).join('\n').trim() || 'Done.'
+      append(text)
+      return res
+    } catch (error) {
+      append(`Error: ${error}`)
+      return null
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function ensureDeviceAwake() {
+    if (!serial) return
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'] })
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'wm', 'dismiss-keyguard'] }).catch(() => null)
+  }
+
+  async function runDeviceShell(command, label) {
+    return runAdb(['-s', serial, 'shell', 'sh', '-c', command], label)
+  }
+
+  async function captureScreenshot() {
+    if (!serial || running) return
+    append('$ Capture screenshot')
+    setRunning(true)
+    try {
+      await ensureDeviceAwake()
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screencap', '/sdcard/ntk_capture.png'] })
+      const dl = await downloadDir()
+      const dest = await pathJoin(dl, `ntk_screenshot_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.png`)
+      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.png', dest] })
+      append(`Saved screenshot to: ${dest}`)
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function recordScreen() {
+    if (!serial || running) return
+    append('$ Record 10 second screen capture')
+    setRunning(true)
+    try {
+      await ensureDeviceAwake()
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'screenrecord', '--time-limit', '10', '/sdcard/ntk_capture.mp4'] })
+      const dl = await downloadDir()
+      const dest = await pathJoin(dl, `ntk_screenrecord_${serial.replace(/[^\w.-]+/g, '_')}_${Date.now()}.mp4`)
+      await invoke('run_adb', { args: ['-s', serial, 'pull', '/sdcard/ntk_capture.mp4', dest] })
+      append(`Saved recording to: ${dest}`)
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  function updateMirrorPopup(b64, status = null) {
+    const win = mirrorPopupRef.current
+    if (!win) return
+    win.emit('ntk-live-frame', { b64: b64 || null, status }).catch(() => {
+      mirrorPopupRef.current = null
+    })
+  }
+
+  function isDisconnectError(msg) {
+    const s = String(msg).toLowerCase()
+    return s.includes('not found') || s.includes('no devices') || s.includes('device offline') ||
+           s.includes('connection reset') || s.includes('protocol fault') || s.includes('error: device')
+  }
+
+  async function captureLiveFrame() {
+    if (!serial || mirrorBusyRef.current) return
+    mirrorBusyRef.current = true
+    try {
+      await ensureDeviceAwake()
+      const res = await invoke('capture_screen_frame', { serial })
+      if (!res?.ok || !res?.b64) {
+        throw new Error(res?.stderr || 'Failed to capture live frame.')
+      }
+      mirrorFailRef.current = 0
+      const normalizedB64 = String(res.b64).trim()
+      const src = normalizedB64.startsWith('data:')
+        ? normalizedB64
+        : `data:image/png;base64,${normalizedB64}`
+      setLiveViewSrc(src)
+      setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
+      updateMirrorPopup(normalizedB64.replace(/^data:image\/png;base64,/, ''), `Connected to ${device?.model || serial}`)
+    } catch (error) {
+      mirrorFailRef.current += 1
+      const errMsg = String(error)
+      const disconnected = isDisconnectError(errMsg) || mirrorFailRef.current >= 5
+      if (disconnected) {
+        const status = 'Device disconnected.'
+        setLiveViewRunning(false)
+        setLiveViewSrc('')
+        setLiveViewStatus(status)
+        append(status)
+        updateMirrorPopup(null, status)
+        mirrorFailRef.current = 0
+      } else {
+        const status = `Stream error: ${errMsg}`
+        setLiveViewStatus(status)
+        updateMirrorPopup(null, status)
+      }
+    } finally {
+      mirrorBusyRef.current = false
+    }
+  }
+
+  async function openLivePopup() {
+    const label = 'ntk-live-view'
+    const existing = await WebviewWindow.getByLabel(label)
+    if (existing) {
+      existing.setFocus().catch(() => {})
+      mirrorPopupRef.current = existing
+      return
+    }
+    const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
+    const win = new WebviewWindow(label, {
+      url: '/?liveview_popup=1',
+      title,
+      width: 430,
+      height: 860,
+      minWidth: 320,
+      minHeight: 480,
+      resizable: true,
+      decorations: true,
+    })
+    win.once('tauri://error', (e) => {
+      append(`Live-view popout error: ${e.payload ?? e}`)
+      mirrorPopupRef.current = null
+    })
+    mirrorPopupRef.current = win
+  }
+
+  useEffect(() => {
+    if (!liveViewRunning || noDevice) return
+    captureLiveFrame()
+    const interval = Math.max(250, Number(liveViewMs) || 500)
+    const id = window.setInterval(captureLiveFrame, interval)
+    return () => window.clearInterval(id)
+  }, [liveViewRunning, liveViewMs, serial])
+
+  const sectionStyle = {
+    background: 'var(--bg-surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    padding: '16px',
+  }
+
+  const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
+
+  return (
+    <div className="panel-content">
+      <div className="panel-header-row">
+        <div style={{ minWidth: 0 }}>
+          <div className="panel-header-accent" />
+          <h1 className="panel-header">Device Companion</h1>
+        </div>
+        {noDevice && (
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            Connect Device
+          </button>
+        )}
+      </div>
+
+      <div className="panel-scroll">
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(20,184,166,0.09), rgba(59,130,246,0.05))',
+          border: '1px solid rgba(20,184,166,0.18)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '18px 16px',
+          marginBottom: 18,
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+            Desktop Device Companion
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            Built-in capture and viewing tools for the connected device, including live streaming, screenshots, screen recording, and a detachable virtual phone window.
+          </div>
+        </div>
+
+        {noDevice && (
+          <div className="warning-banner" style={{ marginBottom: 18 }}>
+            <span>No device connected — Device Companion actions are disabled.</span>
+            <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>View Devices</button>
+          </div>
+        )}
+
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+            NTK keeps the viewer running as a continuous in-app stream loop, and you can pop it out into its own virtual phone window.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
+            <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
+            <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
+            <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14, alignItems: 'start' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>Live Stream</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <select value={liveViewMs} onChange={e => setLiveViewMs(e.target.value)}
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
+                  <option value="250">Responsive</option>
+                  <option value="500">Balanced</option>
+                  <option value="1000">Battery saver</option>
+                </select>
+                <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
+                  {liveViewRunning ? 'Stop' : 'Start Stream'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
+                <button className="btn-ghost" style={actionButtonStyle} disabled={!liveViewSrc && !liveViewRunning} onClick={openLivePopup}>Pop Out</button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {liveViewStatus}
+              </div>
+            </div>
+            <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16 }}>
+              {liveViewSrc ? (
+                <img
+                  key={liveViewSrc}
+                  src={liveViewSrc}
+                  alt="Connected device live view"
+                  onError={() => setLiveViewStatus('Live stream received an invalid frame.')}
+                  style={{ display: 'block', width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
+                  Start Stream to open a built-in virtual phone screen for the connected device.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+            Companion Output
+          </div>
+          <pre ref={outputRef} style={{ margin: 0, minHeight: 220, maxHeight: 360, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            {output || 'Run a Device Companion action to see output here.'}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LiveViewPopupWindow() {
+  const [liveViewSrc, setLiveViewSrc] = useState('')
+  const [status, setStatus] = useState('Waiting for stream…')
+
+  useEffect(() => {
+    let unlisten
+    listen('ntk-live-frame', (event) => {
+      const payload = event.payload || {}
+      if (payload.b64) {
+        setLiveViewSrc(`data:image/png;base64,${payload.b64}`)
+      } else {
+        setLiveViewSrc('')
+      }
+      if (payload.status) setStatus(payload.status)
+    }).then(fn => {
+      unlisten = fn
+    })
+    return () => unlisten?.()
+  }, [])
+
+  return (
+    <div style={{
+      background: '#0b0b0f',
+      color: '#fff',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
+        NTK Live View
+      </div>
+      <div style={{ padding: '8px 14px', color: 'rgba(255,255,255,.7)', fontSize: 12, flexShrink: 0 }}>
+        {status}
+      </div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
+        {liveViewSrc ? (
+          <img
+            src={liveViewSrc}
+            alt="Device live view"
+            style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 22, border: '1px solid rgba(255,255,255,.12)', background: '#111', objectFit: 'contain', display: 'block' }}
+          />
+        ) : (
+          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 13, textAlign: 'center' }}>
+            Start the stream in the main window to see it here.
+          </div>
+        )}
       </div>
     </div>
   )
@@ -10834,7 +10989,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function MainApp() {
   const [devices, setDevices]     = useState([])
   const [ready, setReady]         = useState(false)
   const [selected, setSelected]   = useState(null)
@@ -11084,7 +11239,8 @@ export default function App() {
       case 'general':  return <GeneralPanel device={selected} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'maintenance': return platform === 'android'
         ? <AndroidMaintenancePanel device={selected} props={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
-        : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
+        : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} />
+      case 'companion': return <DesktopDeviceCompanionPanel device={selected} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
       case 'drivers':  return platform === 'windows' ? <DriversPanel platform={platform} /> : <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} />
       case 'advanced': return <AdvancedPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'help':     return <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} mode="help" onOpenPanel={setActivePanel} />
@@ -11434,4 +11590,8 @@ export default function App() {
       )}
     </div>
   )
+}
+
+export default function App() {
+  return isLiveViewPopupMode() ? <LiveViewPopupWindow /> : <MainApp />
 }
