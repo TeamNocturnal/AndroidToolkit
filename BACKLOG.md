@@ -20,6 +20,7 @@ This document tracks focused follow-up work that should live outside the main RE
 ## Maintenance
 
 - [ ] Finish Device Companion live-stream transition: replace the current desktop preview path with a stable long-running video stream pipeline, harden reconnect handling, and verify popout reliability across supported desktop platforms.
+- [ ] Fix Screen Mirror popout sizing and positioning so the mirrored device stays centered, scales cleanly with window resize, and fills the detached window more naturally.
 
 ## Navigation & Layout
 
