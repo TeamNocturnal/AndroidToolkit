@@ -93,6 +93,252 @@ function isLiveViewPopupMode() {
   return false
 }
 
+function liveViewPopupSerial() {
+  try {
+    return new URLSearchParams(window.location.search).get('serial') || ''
+  } catch {}
+  return ''
+}
+
+function decodeBase64Bytes(value) {
+  const binary = window.atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function concatBytes(...parts) {
+  const total = parts.reduce((sum, part) => sum + (part?.length || 0), 0)
+  const next = new Uint8Array(total)
+  let offset = 0
+  parts.forEach(part => {
+    if (!part?.length) return
+    next.set(part, offset)
+    offset += part.length
+  })
+  return next
+}
+
+function stripStartCode(unit) {
+  if (unit[0] === 0 && unit[1] === 0 && unit[2] === 1) return unit.slice(3)
+  if (unit[0] === 0 && unit[1] === 0 && unit[2] === 0 && unit[3] === 1) return unit.slice(4)
+  return unit
+}
+
+function splitAnnexBUnits(buffer) {
+  const markers = []
+  for (let i = 0; i < buffer.length - 3; i += 1) {
+    if (buffer[i] === 0 && buffer[i + 1] === 0) {
+      if (buffer[i + 2] === 1) {
+        markers.push(i)
+      } else if (buffer[i + 2] === 0 && buffer[i + 3] === 1) {
+        markers.push(i)
+      }
+    }
+  }
+  if (markers.length < 2) return { units: [], remainder: buffer }
+  const units = []
+  for (let i = 0; i < markers.length - 1; i += 1) {
+    const start = markers[i]
+    const end = markers[i + 1]
+    units.push(buffer.slice(start, end))
+  }
+  return { units, remainder: buffer.slice(markers[markers.length - 1]) }
+}
+
+function removeEmulationPrevention(bytes) {
+  const out = []
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (i >= 2 && bytes[i] === 0x03 && bytes[i - 1] === 0x00 && bytes[i - 2] === 0x00) continue
+    out.push(bytes[i])
+  }
+  return new Uint8Array(out)
+}
+
+function makeBitReader(bytes) {
+  let bitOffset = 0
+  return {
+    readBit() {
+      const byte = bytes[bitOffset >> 3]
+      const shift = 7 - (bitOffset & 7)
+      bitOffset += 1
+      return (byte >> shift) & 1
+    },
+    readBits(count) {
+      let value = 0
+      for (let i = 0; i < count; i += 1) value = (value << 1) | this.readBit()
+      return value
+    },
+    readUE() {
+      let zeros = 0
+      while (this.readBit() === 0) zeros += 1
+      let value = 1
+      for (let i = 0; i < zeros; i += 1) value = (value << 1) | this.readBit()
+      return value - 1
+    },
+    readSE() {
+      const codeNum = this.readUE()
+      const sign = codeNum & 1 ? 1 : -1
+      return sign * Math.ceil(codeNum / 2)
+    },
+  }
+}
+
+function parseSpsConfig(unit) {
+  const bytes = stripStartCode(unit)
+  if (!bytes?.length || (bytes[0] & 0x1f) !== 7 || bytes.length < 4) return null
+  const codec = `avc1.${[bytes[1], bytes[2], bytes[3]].map(value => value.toString(16).padStart(2, '0')).join('')}`
+  const rbsp = removeEmulationPrevention(bytes.slice(1))
+  const reader = makeBitReader(rbsp)
+  const profileIdc = reader.readBits(8)
+  reader.readBits(8)
+  reader.readBits(8)
+  reader.readUE()
+
+  if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134].includes(profileIdc)) {
+    const chromaFormatIdc = reader.readUE()
+    if (chromaFormatIdc === 3) reader.readBit()
+    reader.readUE()
+    reader.readUE()
+    reader.readBit()
+    if (reader.readBit()) {
+      const scalingCount = chromaFormatIdc !== 3 ? 8 : 12
+      for (let i = 0; i < scalingCount; i += 1) {
+        if (!reader.readBit()) continue
+        const size = i < 6 ? 16 : 64
+        let lastScale = 8
+        let nextScale = 8
+        for (let j = 0; j < size; j += 1) {
+          if (nextScale !== 0) {
+            nextScale = (lastScale + reader.readSE() + 256) % 256
+          }
+          lastScale = nextScale === 0 ? lastScale : nextScale
+        }
+      }
+    }
+  }
+
+  reader.readUE()
+  const picOrderCntType = reader.readUE()
+  if (picOrderCntType === 0) {
+    reader.readUE()
+  } else if (picOrderCntType === 1) {
+    reader.readBit()
+    reader.readSE()
+    reader.readSE()
+    const count = reader.readUE()
+    for (let i = 0; i < count; i += 1) reader.readSE()
+  }
+  reader.readUE()
+  reader.readBit()
+  const picWidthInMbsMinus1 = reader.readUE()
+  const picHeightInMapUnitsMinus1 = reader.readUE()
+  const frameMbsOnlyFlag = reader.readBit()
+  if (!frameMbsOnlyFlag) reader.readBit()
+  reader.readBit()
+  let cropLeft = 0
+  let cropRight = 0
+  let cropTop = 0
+  let cropBottom = 0
+  if (reader.readBit()) {
+    cropLeft = reader.readUE()
+    cropRight = reader.readUE()
+    cropTop = reader.readUE()
+    cropBottom = reader.readUE()
+  }
+  const width = (picWidthInMbsMinus1 + 1) * 16 - (cropLeft + cropRight) * 2
+  const height = (2 - frameMbsOnlyFlag) * (picHeightInMapUnitsMinus1 + 1) * 16 - (cropTop + cropBottom) * 2
+  return { codec, width, height }
+}
+
+function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
+  const state = {
+    supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
+    configured: false,
+    decoder: null,
+    remainder: new Uint8Array(0),
+    accessUnit: [],
+    hasVcl: false,
+    latestSps: null,
+    latestPps: null,
+    timestampUs: 0,
+    frameUs: 33_333,
+  }
+
+  if (!state.supported) {
+    onStatus?.('This desktop webview does not support the VideoDecoder API.')
+    return state
+  }
+
+  state.decoder = new window.VideoDecoder({
+    output: frame => {
+      onFrame?.(frame)
+    },
+    error: error => {
+      onStatus?.(`Decoder error: ${error?.message || error}`)
+    },
+  })
+
+  function flushAccessUnit(force = false) {
+    if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
+    if (!state.configured) {
+      const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
+      if (!spsConfig) return
+      state.decoder.configure({
+        codec: spsConfig.codec,
+        optimizeForLatency: true,
+        codedWidth: spsConfig.width,
+        codedHeight: spsConfig.height,
+      })
+      state.configured = true
+      onStatus?.(`Live stream active • ${new Date().toLocaleTimeString()}`)
+    }
+    const chunkData = concatBytes(...state.accessUnit)
+    const isKey = state.accessUnit.some(unit => ((stripStartCode(unit)[0] || 0) & 0x1f) === 5)
+    try {
+      state.decoder.decode(new window.EncodedVideoChunk({
+        type: isKey ? 'key' : 'delta',
+        timestamp: state.timestampUs,
+        data: chunkData,
+      }))
+      state.timestampUs += state.frameUs
+    } catch (error) {
+      onStatus?.(`Decoder rejected frame: ${error?.message || error}`)
+    }
+    state.accessUnit = []
+    state.hasVcl = false
+  }
+
+  state.pushChunk = payload => {
+    if (!payload?.data || payload.serial !== serial) return
+    const next = concatBytes(state.remainder, decodeBase64Bytes(payload.data))
+    const { units, remainder } = splitAnnexBUnits(next)
+    state.remainder = remainder
+    units.forEach(unit => {
+      const nal = stripStartCode(unit)
+      const nalType = nal[0] & 0x1f
+      if (nalType === 7) state.latestSps = unit
+      if (nalType === 8) state.latestPps = unit
+      if (nalType === 5 && !state.accessUnit.length) {
+        if (state.latestSps) state.accessUnit.push(state.latestSps)
+        if (state.latestPps) state.accessUnit.push(state.latestPps)
+      }
+      if ((nalType === 1 || nalType === 5) && state.hasVcl) {
+        flushAccessUnit()
+      }
+      state.accessUnit.push(unit)
+      if (nalType === 1 || nalType === 5) state.hasVcl = true
+    })
+  }
+
+  state.stop = () => {
+    flushAccessUnit(true)
+    state.decoder?.close()
+  }
+
+  return state
+}
+
 function parseLinuxOsRelease(text) {
   const values = {}
   String(text || '').split('\n').forEach(line => {
@@ -182,18 +428,21 @@ const STATUS = {
 const NAV_SECTIONS = [
   {
     standalone: true,
+    icon: '⭐',
     label: 'GETTING STARTED',
     items: [
       { id: 'getting-started', icon: '⭐', label: 'Getting Started' },
     ],
   },
   {
+    icon: '📱',
     label: 'DEVICES',
     items: [
       { id: 'devices', icon: '📱', label: 'Connected Devices' },
     ],
   },
   {
+    icon: '📦',
     label: 'APPS',
     items: [
       { id: 'install', icon: '📦', label: 'Install APK'  },
@@ -203,12 +452,14 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    icon: '📺',
     label: 'MEDIA',
     items: [
       { id: 'tv',       icon: '📺', label: 'TV & Streaming'    },
     ],
   },
   {
+    icon: '🧰',
     label: 'POWER TOOLS',
     items: [
       { id: 'files',    icon: '📂', label: 'File Browser'      },
@@ -221,6 +472,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    icon: '⚙️',
     label: 'PRO TOOLS',
     items: [
       { id: 'adb',      icon: '🖥️', label: 'ADB & Shell'     },
@@ -229,7 +481,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'HELP',
+    standalone: true,
     items: [
       { id: 'help', icon: '❓', label: 'Help & Docs' },
       { id: 'about', icon: 'ℹ️', label: 'About' },
@@ -481,6 +733,94 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
         </pre>
       )}
     </div>
+  )
+}
+
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.' }) {
+  const canvasRef = useRef(null)
+  const [hasVideo, setHasVideo] = useState(false)
+  const [decoderStatus, setDecoderStatus] = useState('')
+
+  useEffect(() => {
+    setHasVideo(false)
+    setDecoderStatus('')
+    if (!serial) return undefined
+
+    const decoder = createLiveStreamDecoder({
+      serial,
+      onStatus: message => setDecoderStatus(message || ''),
+      onFrame: frame => {
+        const canvas = canvasRef.current
+        if (!canvas) {
+          frame.close()
+          return
+        }
+        const width = frame.displayWidth || frame.codedWidth || 1
+        const height = frame.displayHeight || frame.codedHeight || 1
+        if (canvas.width !== width) canvas.width = width
+        if (canvas.height !== height) canvas.height = height
+        const ctx = canvas.getContext('2d', { alpha: false })
+        ctx?.drawImage(frame, 0, 0, width, height)
+        frame.close()
+        setHasVideo(true)
+      },
+    })
+
+    let unlistenChunk
+    let unlistenStatus
+    listen('live-stream:chunk', event => decoder.pushChunk?.(event.payload || {})).then(fn => {
+      unlistenChunk = fn
+    })
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (payload.message) setDecoderStatus(payload.message)
+      if (payload.state === 'stopped') setHasVideo(false)
+    }).then(fn => {
+      unlistenStatus = fn
+    })
+
+    return () => {
+      unlistenChunk?.()
+      unlistenStatus?.()
+      decoder.stop?.()
+    }
+  }, [serial])
+
+  return (
+    <>
+      <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
+        <canvas
+          ref={canvasRef}
+          style={{
+            display: hasVideo ? 'block' : 'none',
+            width: '100%',
+            maxWidth: 320,
+            borderRadius: 20,
+            border: '1px solid var(--border)',
+            background: '#111',
+            objectFit: 'contain',
+          }}
+        />
+        {!hasVideo && snapshotSrc && (
+          <img
+            key={snapshotSrc}
+            src={snapshotSrc}
+            alt="Connected device preview"
+            style={{ display: 'block', width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }}
+          />
+        )}
+        {!hasVideo && !snapshotSrc && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
+            {running ? 'Waiting for first video frame…' : emptyLabel}
+          </div>
+        )}
+      </div>
+      {decoderStatus && (
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          {decoderStatus}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -6441,12 +6781,9 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   const [output, setOutput] = useState('')
   const outputRef = useRef(null)
   const [liveViewRunning, setLiveViewRunning] = useState(false)
-  const [liveViewMs, setLiveViewMs] = useState('500')
   const [liveViewSrc, setLiveViewSrc] = useState('')
   const [liveViewStatus, setLiveViewStatus] = useState('Idle')
-  const mirrorBusyRef = useRef(false)
   const mirrorPopupRef = useRef(null)
-  const mirrorFailRef = useRef(0)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -6520,53 +6857,31 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   function updateMirrorPopup(b64, status = null) {
     const win = mirrorPopupRef.current
     if (!win) return
-    win.emit('ntk-live-frame', { b64: b64 || null, status }).catch(() => {
-      mirrorPopupRef.current = null
-    })
-  }
-
-  function isDisconnectError(msg) {
-    const s = String(msg).toLowerCase()
-    return s.includes('not found') || s.includes('no devices') || s.includes('device offline') ||
-           s.includes('connection reset') || s.includes('protocol fault') || s.includes('error: device')
+    if (status) {
+      win.emit('live-stream:status', { state: 'info', message: status }).catch(() => {
+        mirrorPopupRef.current = null
+      })
+    }
   }
 
   async function captureLiveFrame() {
-    if (!serial || mirrorBusyRef.current) return
-    mirrorBusyRef.current = true
+    if (!serial) return
     try {
       await ensureDeviceAwake()
       const res = await invoke('capture_screen_frame', { serial })
       if (!res?.ok || !res?.b64) {
         throw new Error(res?.stderr || 'Failed to capture live frame.')
       }
-      mirrorFailRef.current = 0
       const normalizedB64 = String(res.b64).trim()
       const src = normalizedB64.startsWith('data:')
         ? normalizedB64
         : `data:image/png;base64,${normalizedB64}`
       setLiveViewSrc(src)
-      setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
-      updateMirrorPopup(normalizedB64.replace(/^data:image\/png;base64,/, ''), `Connected to ${device?.model || serial}`)
+      setLiveViewStatus(`Snapshot captured • ${new Date().toLocaleTimeString()}`)
     } catch (error) {
-      mirrorFailRef.current += 1
-      const errMsg = String(error)
-      const disconnected = isDisconnectError(errMsg) || mirrorFailRef.current >= 5
-      if (disconnected) {
-        const status = 'Device disconnected.'
-        setLiveViewRunning(false)
-        setLiveViewSrc('')
-        setLiveViewStatus(status)
-        append(status)
-        updateMirrorPopup(null, status)
-        mirrorFailRef.current = 0
-      } else {
-        const status = `Stream error: ${errMsg}`
-        setLiveViewStatus(status)
-        updateMirrorPopup(null, status)
-      }
-    } finally {
-      mirrorBusyRef.current = false
+      const status = `Snapshot error: ${error}`
+      setLiveViewStatus(status)
+      append(status)
     }
   }
 
@@ -6580,7 +6895,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     }
     const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
     const win = new WebviewWindow(label, {
-      url: '/?liveview_popup=1',
+      url: `/?liveview_popup=1&serial=${encodeURIComponent(serial)}`,
       title,
       width: 430,
       height: 860,
@@ -6597,12 +6912,33 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   }
 
   useEffect(() => {
-    if (!liveViewRunning || noDevice) return
-    captureLiveFrame()
-    const interval = Math.max(250, Number(liveViewMs) || 500)
-    const id = window.setInterval(captureLiveFrame, interval)
-    return () => window.clearInterval(id)
-  }, [liveViewRunning, liveViewMs, serial])
+    if (!liveViewRunning || noDevice || !serial) return undefined
+    setLiveViewStatus('Starting live stream…')
+    invoke('start_live_stream', { serial })
+      .then(() => updateMirrorPopup(null, `Connected to ${device?.model || serial}`))
+      .catch(error => {
+        const message = `Live stream failed to start: ${error}`
+        setLiveViewStatus(message)
+        append(message)
+        setLiveViewRunning(false)
+      })
+    return () => {
+      invoke('stop_live_stream').catch(() => null)
+    }
+  }, [liveViewRunning, serial, noDevice, device?.model])
+
+  useEffect(() => {
+    let unlisten
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (!payload.message) return
+      setLiveViewStatus(payload.message)
+      if (payload.state === 'stopped') setLiveViewRunning(false)
+    }).then(fn => {
+      unlisten = fn
+    })
+    return () => unlisten?.()
+  }, [])
 
   const sectionStyle = {
     background: 'var(--bg-surface)',
@@ -6666,12 +7002,6 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
             <div>
               <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 8 }}>Live Stream</div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                <select value={liveViewMs} onChange={e => setLiveViewMs(e.target.value)}
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
-                  <option value="250">Responsive</option>
-                  <option value="500">Balanced</option>
-                  <option value="1000">Battery saver</option>
-                </select>
                 <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
                   {liveViewRunning ? 'Stop' : 'Start Stream'}
                 </button>
@@ -6684,21 +7014,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
                 {liveViewStatus}
               </div>
             </div>
-            <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16 }}>
-              {liveViewSrc ? (
-                <img
-                  key={liveViewSrc}
-                  src={liveViewSrc}
-                  alt="Connected device live view"
-                  onError={() => setLiveViewStatus('Live stream received an invalid frame.')}
-                  style={{ display: 'block', width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }}
-                />
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
-                  Start Stream to open a built-in virtual phone screen for the connected device.
-                </div>
-              )}
-            </div>
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a built-in virtual phone screen for the connected device." />
           </div>
         </div>
 
@@ -6716,24 +7032,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 }
 
 function LiveViewPopupWindow() {
-  const [liveViewSrc, setLiveViewSrc] = useState('')
-  const [status, setStatus] = useState('Waiting for stream…')
-
-  useEffect(() => {
-    let unlisten
-    listen('ntk-live-frame', (event) => {
-      const payload = event.payload || {}
-      if (payload.b64) {
-        setLiveViewSrc(`data:image/png;base64,${payload.b64}`)
-      } else {
-        setLiveViewSrc('')
-      }
-      if (payload.status) setStatus(payload.status)
-    }).then(fn => {
-      unlisten = fn
-    })
-    return () => unlisten?.()
-  }, [])
+  const serial = liveViewPopupSerial()
 
   return (
     <div style={{
@@ -6748,21 +7047,8 @@ function LiveViewPopupWindow() {
       <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
         NTK Live View
       </div>
-      <div style={{ padding: '8px 14px', color: 'rgba(255,255,255,.7)', fontSize: 12, flexShrink: 0 }}>
-        {status}
-      </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
-        {liveViewSrc ? (
-          <img
-            src={liveViewSrc}
-            alt="Device live view"
-            style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 22, border: '1px solid rgba(255,255,255,.12)', background: '#111', objectFit: 'contain', display: 'block' }}
-          />
-        ) : (
-          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 13, textAlign: 'center' }}>
-            Start the stream in the main window to see it here.
-          </div>
-        )}
+        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." />
       </div>
     </div>
   )
@@ -11005,7 +11291,7 @@ function MainApp() {
   const [savedDeviceHistory, setSavedDeviceHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nocturnal_saved_device_history') || '[]') } catch { return [] }
   })
-  const [desktopNavOpen, setDesktopNavOpen] = useState(() => Object.fromEntries(NAV_SECTIONS.map(section => [section.label, true])))
+  const [desktopNavOpen, setDesktopNavOpen] = useState(() => Object.fromEntries(NAV_SECTIONS.map(section => [section.label, false])))
   const [pairSectionOpen, setPairSectionOpen] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [orientation, setOrientation] = useState('portrait')
@@ -11316,7 +11602,10 @@ function MainApp() {
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                       onClick={() => setDesktopNavOpen(prev => ({ ...prev, [section.label]: !prev[section.label] }))}
                     >
-                      <span>{section.label}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {section.icon && <span>{section.icon}</span>}
+                        <span>{section.label}</span>
+                      </span>
                       <span style={{ fontSize: 9, color: 'var(--text-muted)', transform: desktopNavOpen[section.label] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
                     </div>
                   )}

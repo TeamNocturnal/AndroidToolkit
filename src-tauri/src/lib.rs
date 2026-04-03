@@ -61,6 +61,8 @@ use std::sync::Condvar;
 struct LogcatProcess(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
 #[cfg(target_os = "android")]
 struct LogcatProcess(Mutex<Option<std::process::Child>>);
+#[cfg(not(target_os = "android"))]
+struct LiveStreamProcess(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
 #[cfg(target_os = "android")]
 struct AndroidAdbState(Mutex<BTreeSet<String>>);
 #[cfg(target_os = "android")]
@@ -1824,6 +1826,111 @@ async fn stop_logcat(state: tauri::State<'_, LogcatProcess>) -> Result<(), Strin
 }
 
 #[tauri::command]
+async fn start_live_stream(
+    app: tauri::AppHandle,
+    serial: String,
+    state: tauri::State<'_, LiveStreamProcess>,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        let _ = serial;
+        let _ = state;
+        return Err("Desktop live streaming is not available inside the Android APK.".to_string());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        use base64::{engine::general_purpose, Engine as _};
+
+        if let Some(child) = state.0.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+
+        let (mut rx, child) = app
+            .shell()
+            .sidecar("adb")
+            .map_err(|e| e.to_string())?
+            .args([
+                "-s",
+                &serial,
+                "exec-out",
+                "screenrecord",
+                "--output-format=h264",
+                "-",
+            ])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+
+        *state.0.lock().unwrap() = Some(child);
+        let _ = app.emit(
+            "live-stream:status",
+            serde_json::json!({ "state": "starting", "message": format!("Starting stream for {serial}…") }),
+        );
+
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) => {
+                        if !bytes.is_empty() {
+                            let _ = handle.emit(
+                                "live-stream:chunk",
+                                serde_json::json!({
+                                    "serial": serial,
+                                    "data": general_purpose::STANDARD.encode(&bytes),
+                                }),
+                            );
+                        }
+                    }
+                    CommandEvent::Stderr(bytes) => {
+                        let message = String::from_utf8_lossy(&bytes).trim().to_string();
+                        if !message.is_empty() {
+                            let _ = handle.emit(
+                                "live-stream:status",
+                                serde_json::json!({ "state": "info", "message" : message }),
+                            );
+                        }
+                    }
+                    CommandEvent::Terminated(status) => {
+                        let message = if status.code == Some(0) {
+                            "Live stream stopped.".to_string()
+                        } else {
+                            format!("Live stream ended{}.", status.code.map(|c| format!(" with code {c}")).unwrap_or_default())
+                        };
+                        let _ = handle.emit(
+                            "live-stream:status",
+                            serde_json::json!({ "state": "stopped", "message": message }),
+                        );
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn stop_live_stream(state: tauri::State<'_, LiveStreamProcess>) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Some(child) = state.0.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
 async fn extract_and_install_xapk(
     app: tauri::AppHandle,
     serial: String,
@@ -1990,6 +2097,7 @@ fn kill_adb_sidecar(app: tauri::AppHandle) {
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .manage(LogcatProcess(Mutex::new(None)))
+        .manage(LiveStreamProcess(Mutex::new(None)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -2099,6 +2207,8 @@ pub fn run() {
             refresh_fdroid_index,
             start_logcat,
             stop_logcat,
+            start_live_stream,
+            stop_live_stream,
             open_in_finder,
             extract_and_install_xapk,
             get_platform
