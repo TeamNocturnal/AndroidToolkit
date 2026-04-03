@@ -435,6 +435,7 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    standalone: true,
     icon: '📱',
     label: 'DEVICES',
     items: [
@@ -465,7 +466,7 @@ const NAV_SECTIONS = [
       { id: 'files',    icon: '📂', label: 'File Browser'      },
       { id: 'backups',  icon: '💾', label: 'Backup & Restore'  },
       { id: 'maintenance', icon: '🧹', label: 'Maintenance'    },
-      { id: 'companion', icon: '🪞', label: 'Device Companion' },
+      { id: 'companion', icon: '🪞', label: 'Screen Mirror' },
       { id: 'general',  icon: '🔧', label: 'Tweaks'            },
       { id: 'quest',    icon: '🥽', label: 'Quest Tools'       },
       { id: 'rom',      icon: '⚡', label: 'ROM Tools'         },
@@ -498,7 +499,7 @@ const ANDROID_MENU_DESCRIPTIONS = {
   backups: 'App backups plus SMS and data exports',
   devices: 'View this device and status',
   maintenance: 'Safe cleanup, storage scans, and device-care tools',
-  companion: 'Live view, screenshots, and device companion tools',
+  companion: 'Live view, screenshots, and screen mirror tools',
   files: 'Browse files, move content, and manage transfers',
   adb: 'Shell commands, logs, and advanced ADB tools',
   rom: 'ROM and flashing tools',
@@ -736,10 +737,94 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
   )
 }
 
-function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.' }) {
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false }) {
   const canvasRef = useRef(null)
+  const snapshotRef = useRef(null)
+  const gestureRef = useRef(null)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
+
+  function activeSurfaceMetrics() {
+    if (hasVideo && canvasRef.current) {
+      const canvas = canvasRef.current
+      return {
+        node: canvas,
+        width: canvas.width || 0,
+        height: canvas.height || 0,
+      }
+    }
+    if (!hasVideo && snapshotRef.current) {
+      const image = snapshotRef.current
+      return {
+        node: image,
+        width: image.naturalWidth || 0,
+        height: image.naturalHeight || 0,
+      }
+    }
+    return null
+  }
+
+  async function sendTouchCommand(args) {
+    if (!serial || !interactive) return
+    try {
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'input', ...args.map(value => String(value))] })
+    } catch (error) {
+      setDecoderStatus(`Touch input failed: ${error}`)
+    }
+  }
+
+  function pointerToDeviceCoords(event) {
+    const metrics = activeSurfaceMetrics()
+    if (!metrics?.node || !metrics.width || !metrics.height) return null
+    const rect = metrics.node.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null
+    return {
+      x: Math.round((x / rect.width) * metrics.width),
+      y: Math.round((y / rect.height) * metrics.height),
+    }
+  }
+
+  function handlePointerDown(event) {
+    if (!interactive || !serial || !running) return
+    const point = pointerToDeviceCoords(event)
+    if (!point) return
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+      startedAt: Date.now(),
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function handlePointerMove(event) {
+    if (!interactive || !gestureRef.current || gestureRef.current.pointerId !== event.pointerId) return
+    const point = pointerToDeviceCoords(event)
+    if (!point) return
+    gestureRef.current.endX = point.x
+    gestureRef.current.endY = point.y
+  }
+
+  async function handlePointerUp(event) {
+    if (!interactive || !gestureRef.current || gestureRef.current.pointerId !== event.pointerId) return
+    const point = pointerToDeviceCoords(event)
+    const gesture = gestureRef.current
+    gestureRef.current = null
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    const endX = point?.x ?? gesture.endX
+    const endY = point?.y ?? gesture.endY
+    const distance = Math.hypot(endX - gesture.startX, endY - gesture.startY)
+    const duration = Math.max(80, Date.now() - gesture.startedAt)
+    if (distance < 12) {
+      await sendTouchCommand(['tap', gesture.startX, gesture.startY])
+    } else {
+      await sendTouchCommand(['swipe', gesture.startX, gesture.startY, endX, endY, duration])
+    }
+  }
 
   useEffect(() => {
     setHasVideo(false)
@@ -791,22 +876,44 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
       <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
         <canvas
           ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
           style={{
             display: hasVideo ? 'block' : 'none',
-            width: '100%',
-            maxWidth: 320,
+            width: 'auto',
+            height: 'auto',
+            maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+            maxHeight: '100%',
             borderRadius: 20,
             border: '1px solid var(--border)',
             background: '#111',
             objectFit: 'contain',
+            touchAction: interactive ? 'none' : 'auto',
+            cursor: interactive && running ? 'crosshair' : 'default',
           }}
         />
         {!hasVideo && snapshotSrc && (
           <img
+            ref={snapshotRef}
             key={snapshotSrc}
             src={snapshotSrc}
             alt="Connected device preview"
-            style={{ display: 'block', width: '100%', maxWidth: 320, borderRadius: 20, border: '1px solid var(--border)', objectFit: 'contain' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            style={{
+              display: 'block',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+              maxHeight: '100%',
+              borderRadius: 20,
+              border: '1px solid var(--border)',
+              objectFit: 'contain',
+              touchAction: interactive ? 'none' : 'auto',
+              cursor: interactive && running ? 'crosshair' : 'default',
+            }}
           />
         )}
         {!hasVideo && !snapshotSrc && (
@@ -818,6 +925,11 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
       {decoderStatus && (
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
           {decoderStatus}
+        </div>
+      )}
+      {interactive && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Click to tap, or click and drag to swipe.
         </div>
       )}
     </>
@@ -6864,6 +6976,15 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     }
   }
 
+  async function restartLiveStream(reason = null) {
+    if (!serial || noDevice || !liveViewRunning) return
+    if (reason) setLiveViewStatus(reason)
+    await invoke('stop_live_stream').catch(() => null)
+    await new Promise(resolve => window.setTimeout(resolve, 120))
+    await invoke('start_live_stream', { serial })
+    updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+  }
+
   async function captureLiveFrame() {
     if (!serial) return
     try {
@@ -6891,9 +7012,12 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     if (existing) {
       existing.setFocus().catch(() => {})
       mirrorPopupRef.current = existing
+      if (liveViewRunning) {
+        await restartLiveStream('Refreshing stream for pop-out window…')
+      }
       return
     }
-    const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
+    const title = `Nocturnal Screen Mirror${device?.model ? ` • ${device.model}` : ''}`
     const win = new WebviewWindow(label, {
       url: `/?liveview_popup=1&serial=${encodeURIComponent(serial)}`,
       title,
@@ -6909,6 +7033,10 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       mirrorPopupRef.current = null
     })
     mirrorPopupRef.current = win
+    if (liveViewRunning) {
+      await new Promise(resolve => window.setTimeout(resolve, 180))
+      await restartLiveStream('Refreshing stream for pop-out window…')
+    }
   }
 
   useEffect(() => {
@@ -6954,7 +7082,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       <div className="panel-header-row">
         <div style={{ minWidth: 0 }}>
           <div className="panel-header-accent" />
-          <h1 className="panel-header">Device Companion</h1>
+          <h1 className="panel-header">Screen Mirror</h1>
         </div>
         {noDevice && (
           <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
@@ -6972,7 +7100,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
           marginBottom: 18,
         }}>
           <div style={{ fontSize: 22, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
-            Desktop Device Companion
+            Desktop Screen Mirror
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
             Built-in capture and viewing tools for the connected device, including live streaming, screenshots, screen recording, and a detachable virtual phone window.
@@ -6981,7 +7109,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 
         {noDevice && (
           <div className="warning-banner" style={{ marginBottom: 18 }}>
-            <span>No device connected — Device Companion actions are disabled.</span>
+            <span>No device connected — Screen Mirror actions are disabled.</span>
             <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>View Devices</button>
           </div>
         )}
@@ -7014,16 +7142,16 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
                 {liveViewStatus}
               </div>
             </div>
-            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a built-in virtual phone screen for the connected device." />
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive />
           </div>
         </div>
 
         <div style={sectionStyle}>
           <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>
-            Companion Output
+            Screen Mirror Output
           </div>
           <pre ref={outputRef} style={{ margin: 0, minHeight: 220, maxHeight: 360, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            {output || 'Run a Device Companion action to see output here.'}
+            {output || 'Run a Screen Mirror action to see output here.'}
           </pre>
         </div>
       </div>
@@ -7045,10 +7173,10 @@ function LiveViewPopupWindow() {
       overflow: 'hidden',
     }}>
       <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
-        NTK Live View
+        Nocturnal Screen Mirror
       </div>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
-        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." />
+        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." maxDisplayWidth={null} interactive />
       </div>
     </div>
   )

@@ -24,8 +24,7 @@
       }
     ],
     "security": {
-      "csp": null,
-      "withGlobalTauri": true
+      "csp": null
     }
   },
   "bundle": {
@@ -47,7 +46,10 @@
       "binaries/AdbWinUsbApi.dll": "AdbWinUsbApi.dll"
     },
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "dmg": {
+        "background": "images/dmg-background.png"
+      }
     },
     "windows": {
       "nsis": {
