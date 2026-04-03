@@ -10,6 +10,7 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
+const CURRENT_VERSION = '2.0.0-beta.7'
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
@@ -10854,6 +10855,23 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [orientation, setOrientation] = useState('portrait')
   const androidHistoryRef = useRef({ ready: false, syncingPop: false, key: '' })
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false)
+  const [latestVersion, setLatestVersion] = useState('')
+
+  function dismissUpdateBanner() {
+    sessionStorage.setItem('updateBannerDismissed', 'dismissed')
+    setShowUpdateBanner(false)
+  }
+
+  useEffect(() => {
+    if (sessionStorage.getItem('updateBannerDismissed')) return
+    // TODO: replace stub with fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest') and read .tag_name
+    const latest = '2.0.0-beta.7'
+    if (latest !== CURRENT_VERSION) {
+      setLatestVersion(latest)
+      setShowUpdateBanner(true)
+    }
+  }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('nocturnal_saved_devices')
@@ -11102,6 +11120,32 @@ export default function App() {
     <div className="app-layout">
       {showWelcome && <WelcomeScreen onDismiss={() => setShowWelcome(false)} />}
       <Titlebar devices={devices} scanning={scanning} onScan={scan} theme={theme} onTheme={setTheme} platform={platform} />
+      {showUpdateBanner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '7px 16px',
+          background: 'var(--bg-elevated)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}>
+          <span style={{ flex: 1, color: 'var(--text-primary)' }}>
+            A new version of Android Toolkit is available — v{latestVersion}
+          </span>
+          <button
+            onClick={() => openUrl('https://team-nocturnal.com')}
+            style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 600 }}
+          >
+            Download
+          </button>
+          <button
+            onClick={dismissUpdateBanner}
+            style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+            aria-label="Dismiss update banner"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="body-layout">
 
         {/* Sidebar — desktop only */}
