@@ -1666,21 +1666,13 @@ async fn capture_screen_frame(
             }));
         }
 
-        let sanitized = serial
-            .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' { ch } else { '_' })
-            .collect::<String>();
-        let frame_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_millis();
-        let path = std::env::temp_dir().join(format!("ntk_live_frame_{sanitized}_{frame_id}.png"));
-        std::fs::write(&path, &output.stdout).map_err(|e| e.to_string())?;
+        use base64::{Engine as _, engine::general_purpose};
+        let b64 = general_purpose::STANDARD.encode(&output.stdout);
 
         Ok(serde_json::json!({
             "ok": true,
             "mime": "image/png",
-            "path": path.to_string_lossy().to_string()
+            "b64": b64
         }))
     }
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { invoke, convertFileSrc } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { open as openDialog, confirm as dialogConfirm } from '@tauri-apps/plugin-dialog'
 import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { readDir, readTextFile, writeTextFile, mkdir, remove, exists, stat as fsStat, copyFile } from '@tauri-apps/plugin-fs'
@@ -6108,7 +6109,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     battery: true,
   })
   const [liveViewRunning, setLiveViewRunning] = useState(false)
-  const [liveViewMs, setLiveViewMs] = useState('350')
+  const [liveViewMs, setLiveViewMs] = useState('500')
   const [liveViewSrc, setLiveViewSrc] = useState('')
   const [liveViewStatus, setLiveViewStatus] = useState('Idle')
   const [cleanupStatus, setCleanupStatus] = useState({ title: 'Idle', detail: 'Run a cleanup action to see live progress and a completion summary here.', tone: 'neutral' })
@@ -6117,6 +6118,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
   const [cleanupInsight, setCleanupInsight] = useState('Run Analyze Junk to see what NTK thinks is worth cleaning before you delete anything.')
   const mirrorBusyRef = useRef(false)
   const mirrorPopupRef = useRef(null)
+  const mirrorFailRef = useRef(0)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -6291,62 +6293,86 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     }
   }
 
-  function updateMirrorPopup(src, status = null) {
-    const popup = mirrorPopupRef.current
-    if (!popup || popup.closed) return
-    const img = popup.document.getElementById('ntk-live-view-image')
-    const statusEl = popup.document.getElementById('ntk-live-view-status')
-    if (img && src) img.src = src
-    if (statusEl && status) statusEl.textContent = status
+  function updateMirrorPopup(b64, status = null) {
+    const win = mirrorPopupRef.current
+    if (!win) return
+    win.emit('ntk-live-frame', { b64: b64 || null, status }).catch(() => {
+      mirrorPopupRef.current = null
+    })
+  }
+
+  function isDisconnectError(msg) {
+    const s = String(msg).toLowerCase()
+    return s.includes('not found') || s.includes('no devices') || s.includes('device offline') ||
+           s.includes('connection reset') || s.includes('protocol fault') || s.includes('error: device')
   }
 
   async function captureLiveFrame() {
     if (!serial || mirrorBusyRef.current) return
     mirrorBusyRef.current = true
-    setLiveViewStatus('Streaming live device screen…')
     try {
       await ensureDeviceAwake()
       const res = await invoke('capture_screen_frame', { serial })
-      if (!res?.ok || !res?.path) {
+      if (!res?.ok || !res?.b64) {
         throw new Error(res?.stderr || 'Failed to capture live frame.')
       }
-      const src = `${convertFileSrc(res.path)}?t=${Date.now()}`
+      mirrorFailRef.current = 0
+      const src = `data:image/png;base64,${res.b64}`
       setLiveViewSrc(src)
       setLiveViewStatus(`Live stream active • ${new Date().toLocaleTimeString()}`)
-      updateMirrorPopup(src, `Connected to ${device?.model || serial}`)
+      updateMirrorPopup(res.b64, `Connected to ${device?.model || serial}`)
     } catch (error) {
-      const msg = `Live stream error: ${error}`
-      setLiveViewStatus(msg)
-      append(msg)
-      updateMirrorPopup('', msg)
+      mirrorFailRef.current += 1
+      const errMsg = String(error)
+      const disconnected = isDisconnectError(errMsg) || mirrorFailRef.current >= 5
+      if (disconnected) {
+        const status = 'Device disconnected.'
+        setLiveViewRunning(false)
+        setLiveViewSrc('')
+        setLiveViewStatus(status)
+        append(status)
+        updateMirrorPopup(null, status)
+        mirrorFailRef.current = 0
+      } else {
+        const status = `Stream error: ${errMsg}`
+        setLiveViewStatus(status)
+        updateMirrorPopup(null, status)
+      }
     } finally {
       mirrorBusyRef.current = false
     }
   }
 
-  function openLivePopup() {
-    const popup = window.open('about:blank', 'ntk-live-view', 'width=430,height=860,resizable=yes')
-    if (!popup) {
-      append('Unable to open live-view popout window.')
+  async function openLivePopup() {
+    const label = 'ntk-live-view'
+    const existing = await WebviewWindow.getByLabel(label)
+    if (existing) {
+      existing.setFocus().catch(() => {})
+      mirrorPopupRef.current = existing
       return
     }
-    mirrorPopupRef.current = popup
-    popup.document.title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
-    popup.document.body.innerHTML = `
-      <div style="margin:0;background:#0b0b0f;color:#fff;font-family:system-ui,-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column">
-        <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-size:14px;font-weight:600">NTK Live View</div>
-        <div id="ntk-live-view-status" style="padding:8px 14px;color:rgba(255,255,255,.7);font-size:12px">${liveViewStatus}</div>
-        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:14px">
-          <img id="ntk-live-view-image" src="${liveViewSrc}" style="max-width:100%;max-height:100%;border-radius:22px;border:1px solid rgba(255,255,255,.12);background:#111;object-fit:contain" />
-        </div>
-      </div>
-    `
+    const title = `NTK Live View${device?.model ? ` • ${device.model}` : ''}`
+    const win = new WebviewWindow(label, {
+      url: 'liveview.html',
+      title,
+      width: 430,
+      height: 860,
+      minWidth: 320,
+      minHeight: 480,
+      resizable: true,
+      decorations: true,
+    })
+    win.once('tauri://error', (e) => {
+      append(`Live-view popout error: ${e.payload ?? e}`)
+      mirrorPopupRef.current = null
+    })
+    mirrorPopupRef.current = win
   }
 
   useEffect(() => {
     if (!liveViewRunning || noDevice) return
     captureLiveFrame()
-    const interval = Math.max(220, Number(liveViewMs) || 350)
+    const interval = Math.max(250, Number(liveViewMs) || 500)
     const id = window.setInterval(captureLiveFrame, interval)
     return () => window.clearInterval(id)
   }, [liveViewRunning, liveViewMs, serial])
@@ -6532,9 +6558,9 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <select value={liveViewMs} onChange={e => setLiveViewMs(e.target.value)}
                     style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
-                    <option value="220">Responsive</option>
-                    <option value="350">Balanced</option>
-                    <option value="700">Battery saver</option>
+                    <option value="250">Responsive</option>
+                    <option value="500">Balanced</option>
+                    <option value="1000">Battery saver</option>
                   </select>
                   <button className="btn-primary" style={actionButtonStyle} disabled={noDevice} onClick={() => setLiveViewRunning(v => !v)}>
                     {liveViewRunning ? 'Stop' : 'Start Stream'}
