@@ -10,7 +10,7 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.1'
+const CURRENT_VERSION = '2.0.2'
 
 function normalizeVersionTag(version) {
   return String(version || '').trim().replace(/^v/i, '')
@@ -1320,6 +1320,14 @@ function SectionLabel({ children }) {
   )
 }
 
+async function safeConfirmDialog(message, options) {
+  try {
+    return await dialogConfirm(message, options)
+  } catch {
+    return window.confirm(message)
+  }
+}
+
 // ── Titlebar ──────────────────────────────────────────────────────────────────
 
 function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
@@ -1348,7 +1356,19 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
 
   return (
     <div className="titlebar" data-tauri-drag-region>
-      <div className="titlebar-left" />
+      <div className="titlebar-left">
+        <span style={{
+          fontSize: 'var(--text-sm)',
+          fontWeight: 'var(--font-bold)',
+          color: 'var(--text-primary)',
+          letterSpacing: '-0.01em',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          Android Toolkit 2.0
+        </span>
+      </div>
 
       <div className="titlebar-center">
         <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
@@ -6064,7 +6084,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
               ['App',      'Android Toolkit by Team Nocturnal'],
-              ['Version',  'v2.0.1'],
+              ['Version',  'v2.0.2'],
               ['Built by', 'XsMagical — Team Nocturnal'],
               ['Stack',    'Tauri 2 + React + Vite + Rust'],
             ].map(([k, v]) => (
@@ -6741,7 +6761,7 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNaviga
   async function runMaint(label, task, { destructive = false, confirmText = '' } = {}) {
     if (!serial || running) return
     if (destructive) {
-      const ok = await dialogConfirm(confirmText || `Run "${label}"?`)
+      const ok = await safeConfirmDialog(confirmText || `Run "${label}"?`)
       if (!ok) return
     }
     setRunning(true)
@@ -7032,7 +7052,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
   }
 
   async function _confirmRun(message, fn) {
-    const ok = await dialogConfirm(message)
+    const ok = await safeConfirmDialog(message)
     if (!ok) return
     await fn()
   }
@@ -7213,35 +7233,35 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Analyze Junk', 'Scanning Downloads, Documents, and media folders for the largest cleanup candidates…', async () => {
-                const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "du -ah /sdcard/Download /sdcard/Documents /sdcard/DCIM 2>/dev/null | sort -hr | head -n 25"] })
+                const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "du -ak /sdcard/Download /sdcard/Documents /sdcard/DCIM 2>/dev/null | sort -rn | head -n 25"] })
                 return (res.stdout || res.stderr || 'No output').trim()
               })}>Analyze Junk</button>
               <button className="btn-warning" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Remove Installers', 'Deleting leftover APK, APKS, APKM, and XAPK installers from Downloads…', async () => {
-                const ok = await dialogConfirm('Delete leftover installer files from Downloads?')
+                const ok = await safeConfirmDialog('Delete leftover installer files from Downloads?')
                 if (!ok) return 'Canceled.'
                 const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "find /sdcard/Download -maxdepth 2 -type f \\( -iname '*.apk' -o -iname '*.apks' -o -iname '*.apkm' -o -iname '*.xapk' \\) -print -delete 2>/dev/null"] })
                 return (res.stdout || res.stderr || 'Installer cleanup finished.').trim()
               })}>Remove Installers</button>
               <button className="btn-warning" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Clear Thumbnails', 'Removing cached thumbnail files from DCIM and Pictures…', async () => {
-                const ok = await dialogConfirm('Clear thumbnail cache files on the device?')
+                const ok = await safeConfirmDialog('Clear thumbnail cache files on the device?')
                 if (!ok) return 'Canceled.'
                 const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "find /sdcard/DCIM /sdcard/Pictures -type f -path '*/.thumbnails/*' -print -delete 2>/dev/null"] })
                 return (res.stdout || res.stderr || 'Thumbnail cache cleared.').trim()
               })}>Clear Thumbnails</button>
               <button className="btn-warning" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Clear Junk', 'Removing temp, old, backup, and log leftovers from shared storage…', async () => {
-                const ok = await dialogConfirm('Delete temp, log, and old backup leftovers from shared storage?')
+                const ok = await safeConfirmDialog('Delete temp, log, and old backup leftovers from shared storage?')
                 if (!ok) return 'Canceled.'
                 const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "find /sdcard/Download /sdcard/Documents -type f \\( -iname '*.tmp' -o -iname '*.temp' -o -iname '*.log' -o -iname '*.old' -o -iname '*.bak' \\) -print -delete 2>/dev/null"] })
                 return (res.stdout || res.stderr || 'Junk cleanup finished.').trim()
               })}>Clear Junk</button>
               <button className="btn-warning" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Remove Empty Folders', 'Searching common shared-storage folders for empty directories to remove…', async () => {
-                const ok = await dialogConfirm('Delete empty folders in common shared-storage locations?')
+                const ok = await safeConfirmDialog('Delete empty folders in common shared-storage locations?')
                 if (!ok) return 'Canceled.'
                 const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'sh', '-c', "find /sdcard/Download /sdcard/Documents /sdcard/Movies /sdcard/Pictures -depth -type d -empty -print -delete 2>/dev/null"] })
                 return (res.stdout || res.stderr || 'Empty-folder cleanup finished.').trim()
               })}>Remove Empty Folders</button>
               <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runCleanupAction('Reset Battery Stats', 'Resetting Android batterystats counters on the connected device…', async () => {
-                const ok = await dialogConfirm('Reset Android batterystats on the connected device?')
+                const ok = await safeConfirmDialog('Reset Android batterystats on the connected device?')
                 if (!ok) return 'Canceled.'
                 const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'dumpsys', 'batterystats', '--reset'] })
                 return (res.stdout || res.stderr || 'Battery stats reset.').trim()
@@ -10034,7 +10054,7 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
     const rows = targets || (selectedRows.length ? selectedRows : filteredRows)
     if (noDevice || running || !rows.length) return
     const verbs = { disable: 'Disable', restore: 'Restore', uninstall: 'Delete for user 0' }
-    const ok = await dialogConfirm(`${verbs[action]} ${rows.length} package(s)?`)
+    const ok = await safeConfirmDialog(`${verbs[action]} ${rows.length} package(s)?`)
     if (!ok) return
     setRunning(true)
     append(`$ ${verbs[action]} ${rows.length} package(s)`)
@@ -12414,7 +12434,7 @@ function MainApp() {
               color: 'var(--text-muted)',
               letterSpacing: '0.04em',
             }}>
-              v2.0.1
+              v2.0.2
             </div>
           </div>
         )}

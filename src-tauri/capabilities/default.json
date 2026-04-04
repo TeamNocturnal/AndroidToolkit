@@ -9,6 +9,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "dialog:allow-confirm",
     "dialog:allow-open",
     "shell:allow-execute",
     "shell:allow-open",

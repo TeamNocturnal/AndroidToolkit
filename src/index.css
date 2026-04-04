@@ -99,6 +99,7 @@ button { cursor: pointer; font-family: inherit; }
 
 .btn-primary,
 .btn-success,
+.btn-warning,
 .btn-ghost,
 .btn-danger {
   display: inline-flex;
@@ -127,6 +128,16 @@ button { cursor: pointer; font-family: inherit; }
   border: none;
 }
 .btn-success:hover { opacity: 0.9; }
+
+.btn-warning {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  color: var(--accent-yellow);
+}
+.btn-warning:hover {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+}
 
 .btn-ghost {
   background: transparent;
