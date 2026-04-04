@@ -2,7 +2,7 @@
 
 Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workflows, app management, TV tools, Quest tools, maintenance, backups, and power-user Android workflows from a cleaner UI.
 
-[Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · `macOS` · `Windows` · `Linux` · `Android`
+[Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · [Changelog](./CHANGELOG.md) · `macOS` · `Windows` · `Linux` · `Android`
 
 ## What Android Toolkit by Team Nocturnal Is Now
 
@@ -75,6 +75,7 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Jav
 ## Project Links
 
 - Official site: [toolkit.team-nocturnal.com](http://toolkit.team-nocturnal.com)
+- Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Build From Source
 
@@ -241,13 +242,54 @@ npm run tauri build
 
 Expected output:
 
-- `src-tauri/target/release/bundle/macos/TN Toolkit.app`
-- `src-tauri/target/release/bundle/dmg/Android Toolkit_2.0.0-beta.7_aarch64.dmg`
+- `src-tauri/target/release/bundle/macos/Android Toolkit.app`
+- `src-tauri/target/release/bundle/dmg/Android Toolkit_<version>_<arch>.dmg`
+
+### Build macOS App For Distribution
+
+```bash
+npm run build:mac
+```
+
+This ad-hoc build flow:
+
+- builds the macOS `.app` bundle with `Tauri`
+- signs the `.app` with `codesign --force --deep --options runtime -s -`
+- creates a DMG using `create-dmg`
+- signs the final `.dmg` with an ad-hoc identity
+
+Install `create-dmg` first:
+
+```bash
+brew install create-dmg
+```
 
 ### Notes For macOS
 
-- Unsigned DMGs may show Gatekeeper warnings until proper signing/notarization is configured.
-- If you want signed distribution builds, set up a valid Apple `Developer ID Application` certificate and notarization credentials.
+- The macOS bundle config uses `bundle.macOS.signingIdentity` set to `"-"` so ad-hoc signing is the default identity for local macOS bundles.
+- Ad-hoc signing should produce the standard "Unidentified Developer" warning on other Macs instead of a damaged-app error, but it does not notarize the app.
+- For fully trusted public distribution without the extra Gatekeeper confirmation flow, you still need a valid Apple `Developer ID Application` certificate and notarization.
+
+### If macOS Blocks The DMG Or App
+
+Because the current macOS build is ad-hoc signed and not notarized, Gatekeeper may block it the first time.
+
+You may need to do this twice:
+
+1. For the DMG installer
+2. Again for the app the first time you open `Android Toolkit.app`
+
+Use this flow each time macOS blocks it:
+
+1. Try to open the blocked `.dmg` or `.app`
+2. When macOS shows the warning, click `Done`
+3. Open `System Settings`
+4. Go to `Privacy & Security`
+5. Scroll down to the `Security` section
+6. Click `Open Anyway` for the blocked item
+7. Confirm the prompt and open it again
+
+If you install from the DMG, expect to repeat the same `Open Anyway` process once for the installer and once again for the app itself on first launch.
 
 ## Windows Setup
 

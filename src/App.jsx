@@ -10,7 +10,22 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.0-beta.7'
+const CURRENT_VERSION = '2.0.0'
+
+function normalizeVersionTag(version) {
+  return String(version || '').trim().replace(/^v/i, '')
+}
+
+function compareVersions(a, b) {
+  const left = normalizeVersionTag(a).split('.').map(part => parseInt(part, 10) || 0)
+  const right = normalizeVersionTag(b).split('.').map(part => parseInt(part, 10) || 0)
+  const length = Math.max(left.length, right.length)
+  for (let i = 0; i < length; i += 1) {
+    const delta = (left[i] || 0) - (right[i] || 0)
+    if (delta !== 0) return delta
+  }
+  return 0
+}
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
@@ -82,21 +97,27 @@ function previewPlatformOverride() {
   try {
     const value = new URLSearchParams(window.location.search).get('preview_platform')
     if (['android', 'macos', 'windows', 'linux', 'desktop'].includes(value)) return value
-  } catch {}
+  } catch {
+    // Ignore malformed preview query strings.
+  }
   return null
 }
 
 function isLiveViewPopupMode() {
   try {
     return new URLSearchParams(window.location.search).get('liveview_popup') === '1'
-  } catch {}
+  } catch {
+    // Ignore malformed popup query strings.
+  }
   return false
 }
 
 function liveViewPopupSerial() {
   try {
     return new URLSearchParams(window.location.search).get('serial') || ''
-  } catch {}
+  } catch {
+    // Ignore malformed popup query strings.
+  }
   return ''
 }
 
@@ -1302,7 +1323,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
           color: 'var(--text-primary)', letterSpacing: '-0.01em',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          Android Toolkit Beta 7
+          Android Toolkit
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
@@ -1316,14 +1337,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
 
   return (
     <div className="titlebar" data-tauri-drag-region>
-      <div className="titlebar-left">
-        <span style={{
-          fontSize: 'var(--text-sm)', fontWeight: 'var(--font-bold)',
-          color: 'var(--text-primary)', letterSpacing: '-0.01em',
-        }}>
-          ⚡ Android Toolkit Beta 7
-        </span>
-      </div>
+      <div className="titlebar-left" />
 
       <div className="titlebar-center">
         <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
@@ -1437,7 +1451,7 @@ function SidebarDeviceCard({ device, props, onPairDevice }) {
 // ── Device Tools panel ────────────────────────────────────────────────────────
 
 
-function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform = 'desktop', onOpenPanel }) {
+function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform = 'desktop', onOpenPanel: _onOpenPanel }) {
   const serial   = device?.serial
   const noDevice = !device || device.status !== 'device'
   const mono     = "'JetBrains Mono','Courier New',monospace"
@@ -1453,7 +1467,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
   // ── Local pane ───────────────────────────────────────────────────────────────
   const [localPath, setLocalPath]           = useState(null)
-  const [showHidden, setShowHidden]         = useState(false)
+  const [showHidden, _setShowHidden]        = useState(false)
   const [localEntries, setLocalEntries]     = useState([])
   const [localLoading, setLocalLoading]     = useState(false)
   const [localSelected, setLocalSelected]         = useState(null)
@@ -1534,7 +1548,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   const [tvRunning,      setTvRunning]      = useState(false)
   const tvOutputRef = useRef(null)
   const [tvKodiOpen,   setTvKodiOpen]   = useState(true)
-  const [tvAppsOpen,   setTvAppsOpen]   = useState(true)
+  const [_tvAppsOpen,   _setTvAppsOpen]   = useState(true)
   const [tvInstalling,     setTvInstalling]     = useState({})
   const [tvDlProgress,     setTvDlProgress]     = useState({})
   const [tvKodiRepos,       setTvKodiRepos]       = useState(() => new Set())
@@ -1560,23 +1574,23 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
   // ── General Device Tools state ────────────────────────────────────────────────
   const [genDisplayOpen, setGenDisplayOpen] = useState(true)
-  const [genDebloatOpen, setGenDebloatOpen] = useState(true)
-  const [genPerfOpen,    setGenPerfOpen]    = useState(true)
+  const [_genDebloatOpen, _setGenDebloatOpen] = useState(true)
+  const [_genPerfOpen,    _setGenPerfOpen]    = useState(true)
   const [genDnsOpen,     setGenDnsOpen]     = useState(true)
-  const [genPermsOpen,   setGenPermsOpen]   = useState(true)
+  const [_genPermsOpen,   _setGenPermsOpen]   = useState(true)
   const [genOutput,      setGenOutput]      = useState('')
   const [genRunning,     setGenRunning]     = useState(false)
   const [genDpi,         setGenDpi]         = useState('')
   const [genResolution,  setGenResolution]  = useState('')
   const [genRefreshRate, setGenRefreshRate] = useState('')
-  const [genPackages,    setGenPackages]    = useState([])
-  const [genPkgSearch,   setGenPkgSearch]   = useState('')
-  const [genPkgLoading,  setGenPkgLoading]  = useState(false)
+  const [_genPackages,    _setGenPackages]    = useState([])
+  const [_genPkgSearch,   _setGenPkgSearch]   = useState('')
+  const [_genPkgLoading,  _setGenPkgLoading]  = useState(false)
   const [genCustomDns,   setGenCustomDns]   = useState('')
-  const [genPermPkg,     setGenPermPkg]     = useState('')
-  const [genPermName,    setGenPermName]    = useState('')
-  const [genForceStopPkg,setGenForceStopPkg]= useState('')
-  const [genGrantPkg,    setGenGrantPkg]    = useState('')
+  const [_genPermPkg,     _setGenPermPkg]     = useState('')
+  const [_genPermName,    _setGenPermName]    = useState('')
+  const [_genForceStopPkg,_setGenForceStopPkg]= useState('')
+  const [_genGrantPkg,    _setGenGrantPkg]    = useState('')
   const genOutputRef = useRef(null)
 
   // ── Local pane error + home boundary ─────────────────────────────────────────
@@ -1621,7 +1635,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   }, [])
 
   // ── Load device entries ───────────────────────────────────────────────────────
-  async function loadDevEntries(path) {
+  const loadDevEntries = useCallback(async (path) => {
     if (!serial) return
     setDevLoading(true)
     try {
@@ -1631,10 +1645,10 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       setDevEntries(parseLsOutput(res.stdout ?? ''))
     } catch { setDevEntries([]) }
     setDevLoading(false)
-  }
+  }, [serial])
 
   // ── Load local entries ────────────────────────────────────────────────────────
-  async function loadLocalEntries(path) {
+  const loadLocalEntries = useCallback(async (path) => {
     if (!path) return
     console.log('[local] loadLocalEntries', path)
     setLocalLoading(true)
@@ -1671,10 +1685,10 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       homeDir().then(dir => setLocalPath(dir.replace(/\/+$/, '') || '/'))
     }
     setLocalLoading(false)
-  }
+  }, [showHidden])
 
-  useEffect(() => { if (serial && filesOpen) loadDevEntries(devPath) }, [serial, devPath, filesOpen])
-  useEffect(() => { if (localPath && filesOpen) loadLocalEntries(localPath) }, [localPath, filesOpen, showHidden])
+  useEffect(() => { if (serial && filesOpen) loadDevEntries(devPath) }, [serial, devPath, filesOpen, loadDevEntries])
+  useEffect(() => { if (localPath && filesOpen) loadLocalEntries(localPath) }, [localPath, filesOpen, showHidden, loadLocalEntries])
 
   useEffect(() => {
     if (!tvLauncherOpen || !serial) return
@@ -1913,7 +1927,9 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
         await invoke('run_adb', { args: ['-s', serial, 'shell', 'mkdir', '-p', devRemotePath(trimmed)] })
         loadDevEntries(devPath)
       }
-    } catch {}
+    } catch {
+      // Folder creation errors are surfaced by the unchanged file list.
+    }
   }
 
   // ── Device rename / delete ────────────────────────────────────────────────────
@@ -2264,15 +2280,17 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
     } finally { unlisten() }
   }
 
-  async function genFetchPackages() {
+  async function _genFetchPackages() {
     if (!serial) return
-    setGenPkgLoading(true)
+    _setGenPkgLoading(true)
     try {
       const r = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages'] })
       const pkgs = (r.stdout || '').split('\n').map(l => l.replace(/^package:/, '').trim()).filter(Boolean).sort()
-      setGenPackages(pkgs)
-    } catch {}
-    setGenPkgLoading(false)
+      _setGenPackages(pkgs)
+    } catch {
+      // Package list is optional in the current general-tools flow.
+    }
+    _setGenPkgLoading(false)
   }
   async function genSetAnimScale(val) {
     for (const key of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) {
@@ -2346,7 +2364,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
     whiteSpace: 'nowrap', opacity: disabled ? 0.5 : 1, flexShrink: 0,
   })
 
-  function PaneHeader({ label, path, atRoot, onUp, loading, onRefresh }) {
+  function PaneHeader({ label, atRoot, onUp, loading, onRefresh }) {
     return (
       <div style={{
         display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
@@ -2493,7 +2511,9 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
               onDrop={async e => {
                 e.preventDefault(); e.stopPropagation(); setLocalDragOver(false)
                 let parsed = null
-                try { const r = e.dataTransfer.getData('text/plain'); if (r) parsed = JSON.parse(r) } catch {}
+                try { const r = e.dataTransfer.getData('text/plain'); if (r) parsed = JSON.parse(r) } catch {
+                  // Ignore malformed internal drag payloads.
+                }
                 if (!parsed?._nt) parsed = draggedDeviceFile
                 if (parsed?._nt && parsed.pane === 'device') {
                   setDraggedDeviceFile(null)
@@ -2627,7 +2647,9 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 console.log('[drop] device pane drop detected, files:', e.dataTransfer.files.length, 'text/plain:', e.dataTransfer.getData('text/plain'))
                 // Internal drag (local pane → device pane)
                 let parsed = null
-                try { const r = e.dataTransfer.getData('text/plain'); if (r) parsed = JSON.parse(r) } catch {}
+                try { const r = e.dataTransfer.getData('text/plain'); if (r) parsed = JSON.parse(r) } catch {
+                  // Ignore malformed internal drag payloads.
+                }
                 if (!parsed?._nt) parsed = draggedLocalFile
                 if (parsed?._nt && parsed.pane === 'local') {
                   setDraggedLocalFile(null)
@@ -5644,7 +5666,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
               ['App',      'Android Toolkit by Team Nocturnal'],
-              ['Version',  'v2.0.0 Beta 7'],
+              ['Version',  'v2.0.0'],
               ['Built by', 'XsMagical — Team Nocturnal'],
               ['Stack',    'Tauri 2 + React + Vite + Rust'],
             ].map(([k, v]) => (
@@ -5724,6 +5746,7 @@ function DeviceDetail({ device, props, loading, onReboot, savedDevices = [], onS
   const [phonesAdbOpen, setPhonesAdbOpen] = useState(true)
   const [savePromptIp, setSavePromptIp] = useState(null)
   const [saveDeviceName, setSaveDeviceName] = useState('')
+  const [wifiStatus, setWifiStatus] = useState(null)
 
   if (!device) {
     return (
@@ -5797,6 +5820,11 @@ function DeviceDetail({ device, props, loading, onReboot, savedDevices = [], onS
                 Check Android Version
               </button>
             </div>
+            {wifiStatus && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                {wifiStatus}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -6134,7 +6162,7 @@ function AndroidDeviceHome({ device, props, loading, onOpenPanel }) {
   )
 }
 
-function AndroidMaintenancePanel({ device, props, onNavigateToDevices, onOpenPanel }) {
+function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNavigateToDevices, onOpenPanel }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
   const [running, setRunning] = useState(false)
@@ -6557,13 +6585,13 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices, onOpenPan
   )
 }
 
-function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onOpenPanel }) {
+function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onOpenPanel: _onOpenPanel }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
   const [running, setRunning] = useState(false)
   const [output, setOutput] = useState('')
   const outputRef = useRef(null)
-  const [packageName, setPackageName] = useState('')
+  const [_packageName, _setPackageName] = useState('')
   const [open, setOpen] = useState({
     cleanup: true,
     debloat: true,
@@ -6601,7 +6629,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     }
   }
 
-  async function confirmRun(message, fn) {
+  async function _confirmRun(message, fn) {
     const ok = await dialogConfirm(message)
     if (!ok) return
     await fn()
@@ -6704,18 +6732,6 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
     padding: '16px',
-  }
-
-  const inputStyle = {
-    width: '100%',
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '8px 10px',
-    color: 'var(--text-primary)',
-    fontSize: 'var(--text-xs)',
-    outline: 'none',
-    fontFamily: "'JetBrains Mono','Courier New',monospace",
   }
 
   const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
@@ -7006,7 +7022,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     }
   }
 
-  async function openLivePopup() {
+  async function _openLivePopup() {
     const label = 'ntk-live-view'
     const existing = await WebviewWindow.getByLabel(label)
     if (existing) {
@@ -7103,7 +7119,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
             Desktop Screen Mirror
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Built-in capture and viewing tools for the connected device, including live streaming, screenshots, screen recording, and a detachable virtual phone window.
+            Built-in capture and viewing tools for the connected device, including live streaming, screenshots, and screen recording.
           </div>
         </div>
 
@@ -7116,7 +7132,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 
         <div style={sectionStyle}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-            NTK keeps the viewer running as a continuous in-app stream loop, and you can pop it out into its own virtual phone window.
+            NTK keeps the viewer running as a continuous in-app stream loop inside the Screen Mirror panel.
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
@@ -7136,7 +7152,6 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                 <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
-                <button className="btn-ghost" style={actionButtonStyle} disabled={!liveViewSrc && !liveViewRunning} onClick={openLivePopup}>Pop Out</button>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 {liveViewStatus}
@@ -7574,7 +7589,7 @@ function QueueItem({ item, canInstall, onInstall, onRemove }) {
       }
     }).then(fn => { unlisten = fn })
     return () => { unlisten?.() }
-  }, [item.name, isUrlInstall]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.name, isUrlInstall])
 
   // Derive the status label and colour from current state + live progress
   const isActive      = item.status === 'installing'
@@ -7673,7 +7688,7 @@ function InstallApkPanel({ device, onNavigateToDevices, externalQueue, onExterna
       return fresh.length ? [...q, ...fresh] : q
     })
     onExternalQueueConsumed?.()
-  }, [externalQueue])
+  }, [externalQueue, onExternalQueueConsumed])
 
   // Merge items stored in localStorage (fallback) — dedup by path
   useEffect(() => {
@@ -7972,7 +7987,7 @@ function ToggleSwitch({ checked, onChange, disabled }) {
   )
 }
 
-function SearchApkPanel({ device, onNavigateToDevices, onNavigateToInstall, onAddToQueue, platform }) {
+function SearchApkPanel({ device, onNavigateToDevices, onNavigateToInstall: _onNavigateToInstall, onAddToQueue, platform }) {
   const [query, setQuery]             = useState('')
   const [searchState, setSearchState] = useState('idle') // idle | searching | results | no_results
   const [searchError, setSearchError] = useState(null)
@@ -8963,7 +8978,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
   const [pfRemote, setPfRemote]   = useState('')
   const [loadingPorts, setLoadingPorts] = useState(false)
 
-  async function refreshPorts() {
+  const refreshPorts = useCallback(async () => {
     if (!serial) return
     setLoadingPorts(true)
     try {
@@ -8971,9 +8986,9 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
       setPortRules(parseForwardList(res.stdout ?? ''))
     } catch { /* ignore */ }
     setLoadingPorts(false)
-  }
+  }, [serial])
 
-  useEffect(() => { if (serial && open.ports) refreshPorts() }, [serial, open.ports])
+  useEffect(() => { if (serial && open.ports) refreshPorts() }, [serial, open.ports, refreshPorts])
 
   async function addPortRule() {
     if (!pfLocal || !pfRemote) return
@@ -9744,7 +9759,7 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
   )
 }
 
-function AdvancedPanel({ device, deviceProps, onNavigateToDevices, platform, onOpenPanel }) {
+function AdvancedPanel({ device, deviceProps: _deviceProps, onNavigateToDevices, platform, onOpenPanel }) {
   const serial   = device?.serial
   const noDevice = !device || device.status !== 'device'
   const isAndroid = platform === 'android'
@@ -11068,7 +11083,9 @@ function BackupsPanel({ device, onNavigateToDevices }) {
             ...manifest,
             backupDir: await pathJoin(root, entry.name),
           })
-        } catch {}
+        } catch {
+          // Ignore malformed backup manifests and keep loading valid entries.
+        }
       }
       loaded.sort((a, b) => new Date(b.date) - new Date(a.date))
       setBackups(loaded)
@@ -11241,7 +11258,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
               { key: 'sms', label: 'Export SMS', desc: 'Saves SMS and MMS metadata from the device message database.', args: ['shell', 'content', 'query', '--uri', 'content://sms'] },
               { key: 'calls', label: 'Export Call Log', desc: 'Saves the call history that Android exposes over ADB.', args: ['shell', 'content', 'query', '--uri', 'content://call_log/calls'] },
               { key: 'contacts', label: 'Export Contacts', desc: 'Exports the visible contacts list from the contacts provider.', args: ['shell', 'content', 'query', '--uri', 'content://com.android.contacts/contacts'] },
-              { key: 'device_info', label: 'Export Device Info', desc: 'Saves device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo \"\\n--- BATTERY ---\" && dumpsys battery && echo \"\\n--- STORAGE ---\" && df -h'] },
+              { key: 'device_info', label: 'Export Device Info', desc: 'Saves device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo "\\n--- BATTERY ---" && dumpsys battery && echo "\\n--- STORAGE ---" && df -h'] },
             ].map(card => (
               <div key={card.key} style={{ padding: '12px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
                 <div style={{ fontSize: 13, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 5 }}>{card.label}</div>
@@ -11434,17 +11451,34 @@ function MainApp() {
 
   useEffect(() => {
     if (sessionStorage.getItem('updateBannerDismissed')) return
-    // TODO: replace stub with fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest') and read .tag_name
-    const latest = '2.0.0-beta.7'
-    if (latest !== CURRENT_VERSION) {
-      setLatestVersion(latest)
-      setShowUpdateBanner(true)
+    let cancelled = false
+    fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest')
+      .then(async response => {
+        if (!response.ok) throw new Error(`GitHub releases request failed: ${response.status}`)
+        return response.json()
+      })
+      .then(data => {
+        if (cancelled) return
+        const latest = normalizeVersionTag(data?.tag_name)
+        if (!latest) return
+        if (compareVersions(latest, CURRENT_VERSION) > 0) {
+          setLatestVersion(latest)
+          setShowUpdateBanner(true)
+        }
+      })
+      .catch(() => {
+        // Ignore release lookup failures and keep the banner hidden.
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
 
   useEffect(() => {
     const saved = localStorage.getItem('nocturnal_saved_devices')
-    if (saved) try { setSavedDevices(JSON.parse(saved)) } catch {}
+    if (saved) try { setSavedDevices(JSON.parse(saved)) } catch {
+      // Ignore corrupt saved-device payloads and start fresh.
+    }
   }, [])
 
   useEffect(() => {
@@ -11624,7 +11658,7 @@ function MainApp() {
         baseband:     trim(basebandRes),
       })
     }).finally(() => setLoading(false))
-  }, [selected?.serial])
+  }, [selected])
 
   const reboot = useCallback(async (args) => {
     await invoke('run_adb', { args })
@@ -11762,7 +11796,7 @@ function MainApp() {
               color: 'var(--text-muted)',
               letterSpacing: '0.04em',
             }}>
-              v2.0.0 Beta 7
+              v2.0.0
             </div>
           </div>
         )}

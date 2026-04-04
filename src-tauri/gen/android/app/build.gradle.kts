@@ -82,7 +82,7 @@ android {
     applicationVariants.all {
         outputs.all {
             val out = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            out?.outputFileName = "Nocturnal Toolkit 2.0.0-Beta-6.apk"
+            out?.outputFileName = "Android-Toolkit-2.0.0.apk"
         }
     }
 }

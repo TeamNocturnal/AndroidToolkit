@@ -22,6 +22,7 @@ src-tauri/gen/android/**/.kotlin/
 # macOS Finder noise
 .DS_Store
 **/.DS_Store
+*-Installer.dmg
 
 # OneDrive conflict copies (created when Mac and Windows edit simultaneously)
 *MacBook Pro*
