@@ -1348,19 +1348,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
 
   return (
     <div className="titlebar" data-tauri-drag-region>
-      <div className="titlebar-left">
-        <span style={{
-          fontSize: 'var(--text-sm)',
-          fontWeight: 'var(--font-bold)',
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.01em',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}>
-          Android Toolkit
-        </span>
-      </div>
+      <div className="titlebar-left" />
 
       <div className="titlebar-center">
         <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
