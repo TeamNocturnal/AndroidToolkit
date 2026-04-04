@@ -10,7 +10,7 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.0'
+const CURRENT_VERSION = '2.0.1'
 
 function normalizeVersionTag(version) {
   return String(version || '').trim().replace(/^v/i, '')
@@ -464,6 +464,38 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    standalone: true,
+    icon: '⚙️',
+    label: 'DEVICE TOOLS',
+    items: [
+      { id: 'advanced', icon: '⚙️', label: 'Device Tools', badge: 'PRO' },
+    ],
+  },
+  {
+    standalone: true,
+    icon: '📱',
+    label: 'PHONE TOOLS',
+    items: [
+      { id: 'phone',    icon: '📱', label: 'Phone Tools'       },
+    ],
+  },
+  {
+    standalone: true,
+    icon: '🥽',
+    label: 'QUEST TOOLS',
+    items: [
+      { id: 'quest',    icon: '🥽', label: 'Quest Tools'       },
+    ],
+  },
+  {
+    standalone: true,
+    icon: '📺',
+    label: 'TV & STREAMING',
+    items: [
+      { id: 'tv',       icon: '📺', label: 'TV & Streaming'    },
+    ],
+  },
+  {
     icon: '📦',
     label: 'APPS',
     items: [
@@ -471,13 +503,7 @@ const NAV_SECTIONS = [
       { id: 'search',  icon: '🔍', label: 'Search APKs'  },
       { id: 'stores',  icon: '🏪', label: 'App Stores'   },
       { id: 'manage',  icon: '🗂️', label: 'Manage Apps'  },
-    ],
-  },
-  {
-    icon: '📺',
-    label: 'MEDIA',
-    items: [
-      { id: 'tv',       icon: '📺', label: 'TV & Streaming'    },
+      { id: 'backups',  icon: '💾', label: 'Backup & Restore'  },
     ],
   },
   {
@@ -485,21 +511,10 @@ const NAV_SECTIONS = [
     label: 'POWER TOOLS',
     items: [
       { id: 'files',    icon: '📂', label: 'File Browser'      },
-      { id: 'backups',  icon: '💾', label: 'Backup & Restore'  },
-      { id: 'maintenance', icon: '🧹', label: 'Maintenance'    },
       { id: 'companion', icon: '🪞', label: 'Screen Mirror' },
-      { id: 'general',  icon: '🔧', label: 'Tweaks'            },
-      { id: 'quest',    icon: '🥽', label: 'Quest Tools'       },
       { id: 'rom',      icon: '⚡', label: 'ROM Tools'         },
-    ],
-  },
-  {
-    icon: '⚙️',
-    label: 'PRO TOOLS',
-    items: [
       { id: 'adb',      icon: '🖥️', label: 'ADB & Shell'     },
       { id: 'drivers',  icon: '🔌', label: 'Drivers'         },
-      { id: 'advanced', icon: '⚙️', label: 'Pro Tools', badge: 'PRO' },
     ],
   },
   {
@@ -517,14 +532,14 @@ const ANDROID_MENU_DESCRIPTIONS = {
   search: 'Find apps and open trusted sources',
   stores: 'Browse alternative app stores',
   manage: 'Launch, clear, and uninstall apps',
-  backups: 'App backups plus SMS and data exports',
+  backups: 'Toolkit backups, restore, and data exports',
   devices: 'View this device and status',
+  phone: 'Phone-focused tools, tweaks, and maintenance',
   maintenance: 'Safe cleanup, storage scans, and device-care tools',
   companion: 'Live view, screenshots, and screen mirror tools',
   files: 'Browse files, move content, and manage transfers',
   adb: 'Shell commands, logs, and advanced ADB tools',
   rom: 'ROM and flashing tools',
-  general: 'Device tweaks and utility tools',
   tv: 'TV and streaming tools',
   quest: 'Quest tools and sideloading',
   advanced: 'Root tools and advanced options',
@@ -533,10 +548,6 @@ const ANDROID_MENU_DESCRIPTIONS = {
 
 const ANDROID_HIDDEN_PANELS = new Set(['drivers', 'files', 'rom', 'companion'])
 const NON_WINDOWS_HIDDEN_PANELS = new Set(['drivers'])
-const ANDROID_EXTRA_NAV_ITEMS = [
-  { id: 'maintenance', icon: '🧹', label: 'Maintenance' },
-]
-
 function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, compact = false }) {
   const [linuxSetup, setLinuxSetup] = useState(() => linuxUsbSetupForDistro({}))
   const [diag, setDiag] = useState('')
@@ -1051,9 +1062,9 @@ function analyzeDebloatPackage(pkg, { thirdParty = false, disabled = false, manu
     return {
       title: debloatTitleFromPackage(pkg),
       recommendation: 'recommended',
-      category: thirdParty ? 'Bundled third-party app' : 'Preload / marketing app',
+      category: thirdParty ? 'Bundled user app' : 'Preload / marketing app',
       reason: 'Common preload or partner app that is usually safe to remove if you do not use it.',
-      description: 'Partner, carrier, or manufacturer-bundled third-party app.',
+      description: 'Partner, carrier, or manufacturer-bundled app.',
       safety: 'Usually safe to remove if you do not actively use the app.',
       impact: 'Only that app or its notifications/sign-in hooks should stop working.',
       warning: 'Reinstall may be needed if you want the app back later.',
@@ -1128,8 +1139,8 @@ function analyzeDebloatPackage(pkg, { thirdParty = false, disabled = false, manu
       title: debloatTitleFromPackage(pkg),
       recommendation: 'recommended',
       category: 'User app',
-      reason: 'Third-party package. Removing it should mainly affect that app alone.',
-      description: 'Regular third-party app installed for the current user.',
+      reason: 'User-installed package. Removing it should mainly affect that app alone.',
+      description: 'Regular app installed for the current user.',
       safety: 'Generally safe to remove if you no longer use it.',
       impact: 'Only that app and its local data should be affected.',
       warning: 'Back up app data first if it matters.',
@@ -1151,8 +1162,8 @@ function analyzeDebloatPackage(pkg, { thirdParty = false, disabled = false, manu
     title: debloatTitleFromPackage(pkg),
     recommendation: 'advanced',
     category: 'Review manually',
-    reason: 'Needs manual review. It does not match a known safe-remove pattern from NTK heuristics.',
-    description: 'Unknown or device-specific package without a clear NTK match yet.',
+    reason: 'Needs manual review. It does not match a known safe-remove pattern from Nocturnal Toolkit heuristics.',
+    description: 'Unknown or device-specific package without a clear Nocturnal Toolkit match yet.',
     safety: 'Treat as review-first. Disable before deleting if you want to test.',
     impact: 'Unknown. Could be harmless, or it could belong to a feature you use.',
     warning: 'Manual review recommended before action.',
@@ -1451,7 +1462,7 @@ function SidebarDeviceCard({ device, props, onPairDevice }) {
 // ── Device Tools panel ────────────────────────────────────────────────────────
 
 
-function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform = 'desktop', onOpenPanel: _onOpenPanel }) {
+function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform = 'desktop', onOpenPanel: _onOpenPanel, embedded = false }) {
   const serial   = device?.serial
   const noDevice = !device || device.status !== 'device'
   const mono     = "'JetBrains Mono','Courier New',monospace"
@@ -1498,6 +1509,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   const [questRootToolsOpen,  setQuestRootToolsOpen]  = useState(true)
   const [questRootUnlocksOpen,setQuestRootUnlocksOpen]= useState(true)
   const [questNoRootOpen,     setQuestNoRootOpen]     = useState(true)
+  const [questTab, setQuestTab] = useState('tools')
 
   // Privacy packages — all checked by default
   const [questPkgChecked, setQuestPkgChecked] = useState(() => new Set(QUEST_PACKAGES.map(p => p.id)))
@@ -1565,6 +1577,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   const [tvMediaInstalled,   setTvMediaInstalled]   = useState({})
   const [tvMediaInstalling,  setTvMediaInstalling]  = useState({})
   const [tvMediaProgress,    setTvMediaProgress]    = useState({})
+  const [tvTab, setTvTab] = useState('tools')
 
   // ── ADB Setup card state ──────────────────────────────────────────────────────
   const [tvAdbSetupOpen,   setTvAdbSetupOpen]   = useState(true)
@@ -1574,6 +1587,8 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
   // ── General Device Tools state ────────────────────────────────────────────────
   const [genDisplayOpen, setGenDisplayOpen] = useState(true)
+  const [genPowerOpen,   setGenPowerOpen]   = useState(true)
+  const [genUiOpen,      setGenUiOpen]      = useState(true)
   const [_genDebloatOpen, _setGenDebloatOpen] = useState(true)
   const [_genPerfOpen,    _setGenPerfOpen]    = useState(true)
   const [genDnsOpen,     setGenDnsOpen]     = useState(true)
@@ -1587,6 +1602,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   const [_genPkgSearch,   _setGenPkgSearch]   = useState('')
   const [_genPkgLoading,  _setGenPkgLoading]  = useState(false)
   const [genCustomDns,   setGenCustomDns]   = useState('')
+  const [genStatusIcons, setGenStatusIcons] = useState('alarm_clock,bluetooth,rotate,headset')
   const [_genPermPkg,     _setGenPermPkg]     = useState('')
   const [_genPermName,    _setGenPermName]    = useState('')
   const [_genForceStopPkg,_setGenForceStopPkg]= useState('')
@@ -2047,8 +2063,14 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
     setTimeout(() => { if (tvOutputRef.current) tvOutputRef.current.scrollTop = tvOutputRef.current.scrollHeight }, 30)
   }
   function tvShowFor(devices) {
-    if (tvDeviceFilter === 'all') return true
-    return devices.includes(tvDeviceFilter)
+    if (devices.includes('all')) return true
+    const groups = {
+      all: ['firetv', 'onn', 'shield', 'googletv', 'sonytcl'],
+      firetv: ['firetv'],
+      androidtv: ['onn', 'shield', 'googletv', 'sonytcl'],
+    }
+    const visibleDevices = groups[tvDeviceFilter] || groups.all
+    return devices.some(device => visibleDevices.includes(device))
   }
   async function tvRun(args) {
     setTvRunning(true)
@@ -2301,6 +2323,20 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
     await genRun(['-s', serial, 'shell', 'settings', 'put', 'global', 'private_dns_mode', mode])
     if (specifier) await genRun(['-s', serial, 'shell', 'settings', 'put', 'global', 'private_dns_specifier', specifier])
   }
+  async function genSetLowPower(enabled) {
+    await genRun(['-s', serial, 'shell', 'settings', 'put', 'global', 'low_power', enabled ? '1' : '0'])
+  }
+  async function genSetStatusBarIcons(value) {
+    const trimmed = String(value || '').trim()
+    if (!trimmed) {
+      await genRun(['-s', serial, 'shell', 'settings', 'delete', 'secure', 'icon_blacklist'])
+      return
+    }
+    await genRun(['-s', serial, 'shell', 'settings', 'put', 'secure', 'icon_blacklist', trimmed])
+  }
+  async function genSetImmersive(mode) {
+    await genRun(['-s', serial, 'shell', 'settings', 'put', 'global', 'policy_control', mode])
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   function fmtDate(mtime) {
@@ -2418,31 +2454,31 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
   }
 
   const isAndroidTweaksView = platform === 'android' && mode === 'general'
-
-  return (
-    <div className="panel-content">
-      {/* Panel header */}
-      <div className="panel-header-row">
-        <div style={{ minWidth: 0 }}>
-          <div className="panel-header-accent" />
-          <h1 className="panel-header">{
-            mode === 'tv'      ? 'TV & Streaming' :
-            mode === 'quest'   ? 'VR / Quest' :
-            mode === 'files'   ? 'File Browser' :
-            mode === 'rom'     ? 'ROM Tools' :
-            mode === 'general' ? 'Tweaks' :
-            'Device Tools'
-          }</h1>
+  const panelBody = (
+    <>
+      {!embedded && (
+        <div className="panel-header-row">
+          <div style={{ minWidth: 0 }}>
+            <div className="panel-header-accent" />
+            <h1 className="panel-header">{
+              mode === 'tv'      ? 'TV & Streaming' :
+              mode === 'quest'   ? 'VR / Quest' :
+              mode === 'files'   ? 'File Browser' :
+              mode === 'rom'     ? 'ROM Tools' :
+              mode === 'general' ? 'Tweaks' :
+              'Device Tools'
+            }</h1>
+          </div>
+          {noDevice && (
+            <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', flexShrink: 0 }} onClick={onNavigateToDevices}>
+              Connect Device
+            </button>
+          )}
         </div>
-        {noDevice && (
-          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', flexShrink: 0 }} onClick={onNavigateToDevices}>
-            Connect Device
-          </button>
-        )}
-      </div>
+      )}
 
-      <div className="panel-scroll">
-        {noDevice && (
+      <div className={embedded ? undefined : 'panel-scroll'}>
+        {!embedded && noDevice && (
           <div className="warning-banner" style={{ marginBottom: 20 }}>
             <span>
               {mode === 'general'
@@ -2804,6 +2840,24 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
             {/* ADB Setup Card — Quest */}
             {mode === 'quest' && (
+            <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+              {[
+                { id: 'tools', label: 'Tools' },
+                { id: 'tweaks', label: 'Tweaks' },
+                { id: 'advanced', label: 'Advanced' },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  className={questTab === item.id ? 'btn-primary' : 'btn-ghost'}
+                  style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', borderRadius: 99 }}
+                  onClick={() => setQuestTab(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {questTab === 'tools' && (
             <div style={{ marginBottom: 16, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
               <div onClick={() => setQuestAdbSetupOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(255,255,255,0.025)', cursor: 'pointer', userSelect: 'none' }}>
                 <span style={{ fontSize: 9, color: 'var(--text-muted)', display: 'inline-block', transform: questAdbSetupOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>▶</span>
@@ -2879,6 +2933,8 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
               )}
             </div>
             )}
+            </>
+            )}
 
             {/* Development notice */}
             {!questNoticeDismissed && (
@@ -2899,7 +2955,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 1. Privacy & Telemetry ── */}
-            <QuestCard title="PRIVACY & TELEMETRY" subtitle="ADB Package Controls" open={questPrivacyOpen} onToggle={() => setQuestPrivacyOpen(o => !o)}>
+            {questTab === 'tools' && <QuestCard title="PRIVACY & TELEMETRY" subtitle="ADB Package Controls" open={questPrivacyOpen} onToggle={() => setQuestPrivacyOpen(o => !o)}>
               <div style={{ marginBottom: 10, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(234,179,8,0.07)', border: '1px solid rgba(234,179,8,0.25)', fontSize: 11, color: 'var(--accent-yellow)', lineHeight: 1.5 }}>
                 ⚠ Disabling core packages may affect login, store, or app licensing. Start with social/telemetry packages first.
               </div>
@@ -2952,10 +3008,10 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                   </label>
                 ))}
               </div>
-            </QuestCard>
+            </QuestCard>}
 
             {/* ── 2. Performance Tuning ── */}
-            <QuestCard title="PERFORMANCE TUNING" subtitle="CPU & GPU Levels" open={questPerfOpen} onToggle={() => setQuestPerfOpen(o => !o)}>
+            {questTab === 'tweaks' && <QuestCard title="PERFORMANCE TUNING" subtitle="CPU & GPU Levels" open={questPerfOpen} onToggle={() => setQuestPerfOpen(o => !o)}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 12 }}>
                 {[
                   { label: 'CPU Level', val: questCpuLevel, set: setQuestCpuLevel },
@@ -2987,10 +3043,10 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                   }}>Apply</button>
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>Changes are temporary and reset on reboot</span>
               </div>
-            </QuestCard>
+            </QuestCard>}
 
             {/* ── 3. DNS Blocklist ── */}
-            <QuestCard title="DNS BLOCKLIST" subtitle="Meta / Oculus Domains" open={questDnsOpen} onToggle={() => setQuestDnsOpen(o => !o)}>
+            {questTab === 'tweaks' && <QuestCard title="DNS BLOCKLIST" subtitle="Meta / Oculus Domains" open={questDnsOpen} onToggle={() => setQuestDnsOpen(o => !o)}>
               <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {QUEST_DNS_GROUPS.map(group => (
                   <div key={group.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
@@ -3021,6 +3077,27 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <button className="btn-primary" style={{ fontSize: 11, padding: '4px 12px' }} disabled={noDevice || !questDnsChecked.size}
+                  onClick={async () => {
+                    try {
+                      const domains = [...questDnsChecked]
+                      if (!domains.length) return
+                      const hosts = domains.map(d => `0.0.0.0 ${d}`).join('\n')
+                      const dl = await downloadDir()
+                      const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Quest')
+                      await mkdir(root, { recursive: true })
+                      const localFile = await pathJoin(root, 'quest_dns_blocklist_hosts.txt')
+                      await writeTextFile(localFile, hosts)
+                      if (serial) {
+                        await invoke('run_adb', { args: ['-s', serial, 'shell', 'mkdir', '-p', '/sdcard/Download/NocturnalToolkit'] })
+                        await invoke('run_adb', { args: ['-s', serial, 'push', localFile, '/sdcard/Download/NocturnalToolkit/quest_dns_blocklist_hosts.txt'] })
+                      }
+                      setQuestStatus({ ok: true, msg: `✓ Saved ${domains.length} selected domains to toolkit blocklist files on your computer${serial ? ' and Quest' : ''}` })
+                    } catch (e) {
+                      setQuestStatus({ ok: false, msg: `⚠ Failed to save blocklist: ${String(e).slice(0, 80)}` })
+                    }
+                    setTimeout(() => setQuestStatus(null), 5000)
+                  }}>✓ Save via Toolkit</button>
                 <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 12px' }}
                   onClick={() => {
                     const domains = [...questDnsChecked]
@@ -3033,12 +3110,12 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{questDnsChecked.size} domains selected</span>
               </div>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, fontStyle: 'italic' }}>
-                Apply via Pi-hole, AdGuard, or router-level DNS blocking. ADB-based on-device blocking coming soon.
+                The toolkit can now generate and save the selected hosts-format blocklist for you directly. Direct per-domain blocking on the headset itself still depends on root or a DNS/VPN layer because Quest does not expose a non-root hosts editor over ADB.
               </div>
-            </QuestCard>
+            </QuestCard>}
 
             {/* ── 4. Rooting & Advanced Access ── */}
-            <QuestCard title="ROOTING & ADVANCED ACCESS" subtitle="Firmware-dependent" open={questRootOpen} onToggle={() => setQuestRootOpen(o => !o)}>
+            {questTab === 'advanced' && <QuestCard title="ROOTING & ADVANCED ACCESS" subtitle="Firmware-dependent" open={questRootOpen} onToggle={() => setQuestRootOpen(o => !o)}>
 
               {/* Warning banner */}
               <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', fontSize: 11, color: 'var(--accent-red)', lineHeight: 1.6 }}>
@@ -3067,11 +3144,9 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
               <QuestCard title="ROOTING TOOLS" subtitle="Reference links" open={questRootToolsOpen} onToggle={() => setQuestRootToolsOpen(o => !o)}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {[
-                    { name: 'SideQuest',             url: 'https://sidequestvr.com',                                                  desc: 'Primary sideloading tool for Quest devices' },
-                    { name: 'Magisk (if rooted)',     url: 'https://github.com/topjohnwu/Magisk',                                      desc: 'Systemless root manager — required on rooted firmware' },
-                    { name: 'payload_dumper',         url: 'https://github.com/vm03/payload_dumper',                                   desc: 'Firmware extraction tool — dumps partitions from OTA payload.bin' },
                     { name: 'Meta Quest ADB Guide',   url: 'https://developer.oculus.com/documentation/native/android/mobile-adb/',    desc: 'Official ADB setup and developer mode documentation' },
-                    { name: 'Lightning Launcher',     url: 'https://play.google.com/store/apps/details?id=net.pierrox.lightning_launcher_extreme', desc: 'Popular Quest launcher alternative' },
+                    { name: 'Meta Developer Setup',   url: 'https://developers.meta.com/horizon/documentation/native/android/mobile-device-setup/', desc: 'Official developer-mode setup steps for Quest devices' },
+                    { name: 'ADB Command Reference',  url: 'https://developer.android.com/tools/adb', desc: 'Official Android Debug Bridge reference' },
                   ].map(tool => (
                     <div key={tool.name} style={{ padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-subtle)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
@@ -3112,8 +3187,8 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                   {[
                     'Package disable/enable — covered in Privacy & Telemetry above',
                     'Performance tuning via setprop (CPU/GPU level)',
-                    'DNS blocklist via router, Pi-hole, or AdGuard',
-                    'Sideloading APKs via ADB or SideQuest',
+                    'DNS blocklist via router, Private DNS, or network filtering',
+                    'Sideloading APKs via ADB',
                     'File access to /sdcard via ADB or File Browser above',
                   ].map((item, i) => (
                     <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0' }}>
@@ -3124,7 +3199,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 </div>
               </QuestCard>
 
-            </QuestCard>
+            </QuestCard>}
 
           </div>
           )}
@@ -3529,6 +3604,87 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 : <DesktopInlineSection title="PRIVATE DNS" subtitle="System-wide DNS presets and custom hostnames">{content}</DesktopInlineSection>
             })()}
 
+            {/* ── 3. Battery & Power ── */}
+            {(() => {
+              const content = (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontSize: isAndroidTweaksView ? 12 : 10, color: 'var(--text-muted)', lineHeight: 1.6, padding: '6px 10px', background: 'rgba(20,184,166,0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(20,184,166,0.15)' }}>
+                    Battery saver and Doze controls are applied directly through ADB from the toolkit. Device firmware may still override some behavior.
+                  </div>
+                  <div>
+                    <div style={{ fontSize: isAndroidTweaksView ? 13 : 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-secondary)', marginBottom: 6 }}>Battery Saver</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetLowPower(true)}>Enable Saver</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetLowPower(false)}>Disable Saver</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genRun(['-s', serial, 'shell', 'am', 'start', '-a', 'android.settings.BATTERY_SAVER_SETTINGS'])}>Open Settings</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: isAndroidTweaksView ? 13 : 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-secondary)', marginBottom: 6 }}>Doze & Idle</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genRun(['-s', serial, 'shell', 'dumpsys', 'deviceidle', 'force-idle'])}>Force Doze</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genRun(['-s', serial, 'shell', 'dumpsys', 'deviceidle', 'unforce'])}>Exit Doze</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genRun(['-s', serial, 'shell', 'dumpsys', 'deviceidle', 'step'])}>Advance Idle Step</button>
+                    </div>
+                  </div>
+                </div>
+              )
+              return isAndroidTweaksView
+                ? <QuestCard title="Battery & Power" subtitle="Battery saver and Doze controls" open={genPowerOpen} onToggle={() => setGenPowerOpen(o => !o)}>{content}</QuestCard>
+                : <DesktopInlineSection title="BATTERY & POWER" subtitle="Battery saver and Doze controls">{content}</DesktopInlineSection>
+            })()}
+
+            {/* ── 4. System UI ── */}
+            {(() => {
+              const content = (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: isAndroidTweaksView ? 13 : 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-secondary)', marginBottom: 6 }}>Status Bar Icon Cleanup</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                      {[
+                        { label: 'Minimal', value: 'alarm_clock,bluetooth,rotate,headset' },
+                        { label: 'Travel', value: 'alarm_clock,bluetooth,rotate,headset,vpn,hotspot' },
+                        { label: 'Carrier Clutter', value: 'volte,vowifi,ims' },
+                      ].map(preset => (
+                        <button key={preset.label} className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                          onClick={() => { setGenStatusIcons(preset.value); genSetStatusBarIcons(preset.value) }}>{preset.label}</button>
+                      ))}
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => { setGenStatusIcons(''); genSetStatusBarIcons('') }}>Reset</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input value={genStatusIcons} onChange={e => setGenStatusIcons(e.target.value)} placeholder="alarm_clock,bluetooth,rotate"
+                        style={{ flex: 1, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: isAndroidTweaksView ? '8px 10px' : '4px 8px', color: 'var(--text-primary)', fontSize: isAndroidTweaksView ? 13 : 11, fontFamily: "'JetBrains Mono','Courier New',monospace", outline: 'none' }} />
+                      <button className="btn-primary" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetStatusBarIcons(genStatusIcons)}>Apply</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: isAndroidTweaksView ? 13 : 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-secondary)', marginBottom: 6 }}>Immersive Mode</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetImmersive('immersive.full=*')}>Full Screen</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetImmersive('immersive.status=*')}>Hide Status Bar</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetImmersive('immersive.navigation=*')}>Hide Navigation</button>
+                      <button className="btn-ghost" style={{ fontSize: isAndroidTweaksView ? 13 : 11, padding: isAndroidTweaksView ? '8px 12px' : '4px 10px' }} disabled={noDevice || genRunning}
+                        onClick={() => genSetImmersive('null')}>Reset</button>
+                    </div>
+                  </div>
+                </div>
+              )
+              return isAndroidTweaksView
+                ? <QuestCard title="System UI" subtitle="Status bar and immersive mode helpers" open={genUiOpen} onToggle={() => setGenUiOpen(o => !o)}>{content}</QuestCard>
+                : <DesktopInlineSection title="SYSTEM UI" subtitle="Status bar and immersive mode helpers">{content}</DesktopInlineSection>
+            })()}
+
             {/* ── Shared output terminal ── */}
             {genOutput && (
               <div style={{ marginTop: 8 }}>
@@ -3548,12 +3704,26 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
         {(mode === 'all' || mode === 'tv') && (
         <div>
 
-            <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--accent-teal)', letterSpacing: '0.08em', marginBottom: 10 }}>
-              DEVICE TOOLS
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+              {[
+                { id: 'tools', label: 'Tools' },
+                { id: 'streaming', label: 'Streaming' },
+                { id: 'launchers', label: 'Launchers' },
+                { id: 'others', label: 'Others' },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  className={tvTab === item.id ? 'btn-primary' : 'btn-ghost'}
+                  style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', borderRadius: 99 }}
+                  onClick={() => setTvTab(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
 
             {/* ADB Setup Card — TV */}
-            {mode === 'tv' && (
+            {mode === 'tv' && tvTab === 'tools' && (
             <div style={{ marginBottom: 16, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
               <div onClick={() => setTvAdbSetupOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(255,255,255,0.025)', cursor: 'pointer', userSelect: 'none' }}>
                 <span style={{ fontSize: 9, color: 'var(--text-muted)', display: 'inline-block', transform: tvAdbSetupOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>▶</span>
@@ -3656,10 +3826,6 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             </div>
             )}
 
-            {/* Development notice */}
-            <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--accent-teal)', letterSpacing: '0.08em', marginBottom: 10 }}>
-              DEVICE TOOLS
-            </div>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14, padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.22)' }}>
               <span style={{ fontSize: 16, flexShrink: 0, lineHeight: 1.3 }}>🚧</span>
               <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, flex: 1 }}>
@@ -3667,33 +3833,33 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
               </span>
             </div>
 
-            {/* Device Filter Bar */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-              {[
-                { label: 'All Devices',          value: 'all' },
-                { label: 'Fire TV / Fire Stick',  value: 'firetv' },
-                { label: 'ONN',                  value: 'onn' },
-                { label: 'NVIDIA Shield',         value: 'shield' },
-                { label: 'Google TV',            value: 'googletv' },
-                { label: 'Sony / TCL',           value: 'sonytcl' },
-              ].map(f => (
-                <button
-                  key={f.value}
-                  className={tvDeviceFilter === f.value ? 'btn-primary' : 'btn-ghost'}
-                  style={{ fontSize: 10, padding: '3px 10px', borderRadius: 99 }}
-                  onClick={() => setTvDeviceFilter(f.value)}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {tvDeviceFilter !== 'all' && (
-              <div style={{ marginBottom: 12, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                Showing tools for: <span style={{ color: 'var(--accent-teal)' }}>{{ firetv: 'Fire TV / Fire Stick', onn: 'ONN', shield: 'NVIDIA Shield', googletv: 'Google TV', sonytcl: 'Sony / TCL' }[tvDeviceFilter]}</span> — select 'All Devices' to see everything
-              </div>
+            {(tvTab === 'tools' || tvTab === 'others') && (
+              <>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {[
+                    { label: 'All Devices', value: 'all' },
+                    { label: 'Firestick / Fire TV', value: 'firetv' },
+                    { label: 'Google / ONN Devices', value: 'androidtv' },
+                  ].map(f => (
+                    <button
+                      key={f.value}
+                      className={tvDeviceFilter === f.value ? 'btn-primary' : 'btn-ghost'}
+                      style={{ fontSize: 10, padding: '3px 10px', borderRadius: 99 }}
+                      onClick={() => setTvDeviceFilter(f.value)}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {tvDeviceFilter !== 'all' && (
+                  <div style={{ marginBottom: 12, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Showing device-specific sections for <span style={{ color: 'var(--accent-teal)' }}>{tvDeviceFilter === 'firetv' ? 'Firestick / Fire TV' : 'Google / ONN and Android TV devices'}</span>. Switch back to <span style={{ color: 'var(--text-secondary)' }}>All Devices</span> to see the shared setup cards too.
+                  </div>
+                )}
+              </>
             )}
 
             {/* ── 1. Device Setup & Sideloading ── */}
-            {tvShowFor(['all']) && (
+            {tvTab === 'tools' && tvShowFor(['all']) && (
             <QuestCard title="DEVICE SETUP & SIDELOADING" subtitle={null} open={tvSetupOpen} onToggle={() => setTvSetupOpen(o => !o)}>
               <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
                 <div style={{ fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>Enable ADB Debugging</div>
@@ -3746,7 +3912,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 2. Fire TV / Fire Stick Tools ── */}
-            {tvShowFor(['firetv']) && (
+            {tvTab === 'tools' && tvShowFor(['firetv']) && (
             <QuestCard title="FIRE TV / FIRE STICK TOOLS" subtitle="Debloat Presets" open={tvFireOpen} onToggle={() => setTvFireOpen(o => !o)}>
               <div style={{ marginBottom: 8, fontSize: 10, color: 'var(--text-muted)', fontFamily: mono }}>Fire TV &amp; Fire Stick Only</div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -3807,7 +3973,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 3. Fire TV Modding ── */}
-            {tvShowFor(['firetv']) && (
+            {tvTab === 'others' && tvShowFor(['firetv']) && (
             <QuestCard title="FIRE TV MODDING" subtitle="Sideloading & Power Tools" open={tvFireModOpen} onToggle={() => setTvFireModOpen(o => !o)}>
 
               {/* Toast */}
@@ -4054,7 +4220,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 4. Google Play on Fire TV ── */}
-            {tvShowFor(['firetv']) && (
+            {tvTab === 'others' && tvShowFor(['firetv']) && (
             <QuestCard title="GOOGLE PLAY ON FIRE TV" subtitle="No Root" open={tvGplayOpen} onToggle={() => setTvGplayOpen(o => !o)}>
               <div style={{ marginBottom: 10, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(234,179,8,0.07)', border: '1px solid rgba(234,179,8,0.25)', fontSize: 11, color: 'var(--accent-yellow)', lineHeight: 1.5 }}>
                 APK versions must match your Fire OS version. This method works on Fire OS 7 (Fire Stick 4K / 4K Max).
@@ -4094,7 +4260,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 5. Android TV / ONN Tools ── */}
-            {tvShowFor(['onn', 'shield', 'googletv', 'sonytcl']) && (
+            {tvTab === 'tools' && tvShowFor(['onn', 'shield', 'googletv', 'sonytcl']) && (
             <QuestCard title="ANDROID TV / ONN TOOLS" subtitle="Common Tweaks" open={tvAndroidOpen} onToggle={() => setTvAndroidOpen(o => !o)}>
               <div style={{ marginBottom: 8, fontSize: 10, color: 'var(--text-muted)', fontFamily: mono }}>ONN · Shield · Google TV · Sony · TCL</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -4138,7 +4304,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             )}
 
             {/* ── 6. Launchers ── */}
-            {tvShowFor(['all']) && (
+            {tvTab === 'launchers' && tvShowFor(['all']) && (
             <QuestCard title="LAUNCHERS" subtitle="Replace Your Home Screen" open={tvLauncherOpen} onToggle={() => setTvLauncherOpen(o => !o)}>
 
               {/* Toast */}
@@ -4272,12 +4438,14 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             </QuestCard>
             )}
 
+            {tvTab === 'streaming' && (
             <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--accent-teal)', letterSpacing: '0.08em', marginTop: 18, marginBottom: 10 }}>
-              MEDIA TOOLS
+              STREAMING
             </div>
+            )}
 
             {/* ── 7. Media Center ── */}
-            {tvShowFor(['all']) && (
+            {tvTab === 'streaming' && tvShowFor(['all']) && (
             <QuestCard title="MEDIA CENTER" subtitle="Kodi, Stremio & More" open={tvKodiOpen} onToggle={() => setTvKodiOpen(o => !o)}>
 
               {/* ── Sub-section: Kodi ── */}
@@ -4806,8 +4974,12 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
           </>)}
         </div>
       )}
-    </div>
+    </>
   )
+
+  return embedded
+    ? panelBody
+    : <div className="panel-content">{panelBody}</div>
 }
 
 // ── Mode-specific panel wrappers ───────────────────────────────────────────────
@@ -4830,6 +5002,232 @@ function GeneralPanel({ device, onNavigateToDevices, platform, onOpenPanel }) {
 
 function TVPanel({ device, onNavigateToDevices }) {
   return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="tv" />
+}
+
+function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, onOpenPanel }) {
+  const serial = device?.serial
+  const noDevice = !device || device.status !== 'device'
+  const [tab, setTab] = useState('tools')
+  const [running, setRunning] = useState(false)
+  const [output, setOutput] = useState('')
+  const [securePkg, setSecurePkg] = useState('')
+  const [permPkg, setPermPkg] = useState('')
+  const [permName, setPermName] = useState('')
+  const [statusIcons, setStatusIcons] = useState('alarm_clock,bluetooth,rotate,headset')
+
+  function append(line) {
+    setOutput(prev => `${prev}${prev ? '\n' : ''}${line}`)
+  }
+
+  async function runPhoneAdb(args, label) {
+    if (!serial || running) return
+    if (label) append(`$ ${label}`)
+    setRunning(true)
+    try {
+      const res = await invoke('run_adb', { args: ['-s', serial, ...args] })
+      append(([res.stdout, res.stderr].filter(Boolean).join('\n').trim() || 'Done.'))
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="panel-content">
+      <div className="panel-header-row">
+        <div style={{ minWidth: 0 }}>
+          <div className="panel-header-accent" />
+          <h1 className="panel-header">Phone Tools</h1>
+        </div>
+        {noDevice && (
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            Connect Device
+          </button>
+        )}
+      </div>
+
+      <div className="panel-scroll">
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(20,184,166,0.08), rgba(168,85,247,0.05))',
+          border: '1px solid rgba(20,184,166,0.18)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '16px 18px',
+          marginBottom: 18,
+        }}>
+          <div style={{ fontSize: 20, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+            Phone Tools
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            Phone-first controls inspired by the most useful ADB workflows: app control, UI cleanup, DNS, display tweaks, battery tuning, and cleanup actions you can actually apply from this toolkit.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+          {[
+            { id: 'tools', label: 'Tools' },
+            { id: 'tweaks', label: 'Tweaks' },
+            { id: 'maintenance', label: 'Maintenance' },
+            { id: 'backups', label: 'Backup & Restore' },
+          ].map(item => (
+            <button
+              key={item.id}
+              className={tab === item.id ? 'btn-primary' : 'btn-ghost'}
+              style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', borderRadius: 99 }}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'tools' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {noDevice && (
+              <div className="warning-banner">
+                <span>No device connected — phone tool actions are disabled</span>
+                <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+                  View Devices
+                </button>
+              </div>
+            )}
+
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+                App Control
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+                Debloating and app control are one of the most useful ADB workflows. The toolkit keeps the full debloat workbench in the Maintenance tab and app actions in Manage Apps.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} onClick={() => setTab('maintenance')}>Open Debloat &amp; App Care</button>
+                <button className="btn-ghost" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} onClick={() => onOpenPanel?.('manage')}>Open Manage Apps</button>
+                <button className="btn-ghost" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} onClick={() => onOpenPanel?.('backups')}>Open Backup &amp; Restore</button>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+                System UI & Immersive
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>
+                Clean up status-bar icons and toggle immersive layouts directly through ADB from the toolkit.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                {[
+                  { label: 'Minimal Icons', value: 'alarm_clock,bluetooth,rotate,headset' },
+                  { label: 'Travel Icons', value: 'alarm_clock,bluetooth,rotate,headset,vpn,hotspot' },
+                  { label: 'Reset Icons', value: '' },
+                ].map(preset => (
+                  <button key={preset.label} className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running}
+                    onClick={() => {
+                      setStatusIcons(preset.value)
+                      runPhoneAdb(preset.value ? ['shell', 'settings', 'put', 'secure', 'icon_blacklist', preset.value] : ['shell', 'settings', 'delete', 'secure', 'icon_blacklist'], preset.label)
+                    }}>
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                <input value={statusIcons} onChange={e => setStatusIcons(e.target.value)} placeholder="alarm_clock,bluetooth,rotate"
+                  style={{ flex: 1, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', color: 'var(--text-primary)', fontSize: 12, fontFamily: "'JetBrains Mono','Courier New',monospace", outline: 'none' }} />
+                <button className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running}
+                  onClick={() => runPhoneAdb(statusIcons.trim() ? ['shell', 'settings', 'put', 'secure', 'icon_blacklist', statusIcons.trim()] : ['shell', 'settings', 'delete', 'secure', 'icon_blacklist'], 'Apply status bar icons')}>
+                  Apply
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPhoneAdb(['shell', 'settings', 'put', 'global', 'policy_control', 'immersive.full=*'], 'Immersive full')}>Full Screen</button>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPhoneAdb(['shell', 'settings', 'put', 'global', 'policy_control', 'immersive.status=*'], 'Immersive status')}>Hide Status Bar</button>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPhoneAdb(['shell', 'settings', 'put', 'global', 'policy_control', 'immersive.navigation=*'], 'Immersive navigation')}>Hide Navigation</button>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPhoneAdb(['shell', 'settings', 'put', 'global', 'policy_control', 'null'], 'Reset immersive mode')}>Reset</button>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+                Permissions & Setup Helpers
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+                Grant the ADB-level permissions these tools depend on, and jump straight into the Android settings pages you usually need during setup.
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                <input value={securePkg} onChange={e => setSecurePkg(e.target.value)} placeholder="com.example.app"
+                  style={{ flex: 1, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', color: 'var(--text-primary)', fontSize: 12, fontFamily: "'JetBrains Mono','Courier New',monospace", outline: 'none' }} />
+                <button className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} disabled={!securePkg.trim() || noDevice || running}
+                  onClick={() => runPhoneAdb(['shell', 'pm', 'grant', securePkg.trim(), 'android.permission.WRITE_SECURE_SETTINGS'], `grant WRITE_SECURE_SETTINGS ${securePkg.trim()}`)}>
+                  Grant WRITE_SECURE_SETTINGS
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                <input value={permPkg} onChange={e => setPermPkg(e.target.value)} placeholder="Package name"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', color: 'var(--text-primary)', fontSize: 12, fontFamily: "'JetBrains Mono','Courier New',monospace", outline: 'none' }} />
+                <input value={permName} onChange={e => setPermName(e.target.value)} placeholder="android.permission.DUMP"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', color: 'var(--text-primary)', fontSize: 12, fontFamily: "'JetBrains Mono','Courier New',monospace", outline: 'none' }} />
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={!permPkg.trim() || !permName.trim() || noDevice || running}
+                  onClick={() => runPhoneAdb(['shell', 'pm', 'grant', permPkg.trim(), permName.trim()], `grant ${permName.trim()}`)}>
+                  Grant
+                </button>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={!permPkg.trim() || !permName.trim() || noDevice || running}
+                  onClick={() => runPhoneAdb(['shell', 'pm', 'revoke', permPkg.trim(), permName.trim()], `revoke ${permName.trim()}`)}>
+                  Revoke
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running}
+                  onClick={() => runPhoneAdb(['shell', 'am', 'start', '-a', 'android.settings.APPLICATION_DEVELOPMENT_SETTINGS'], 'Open Developer Options')}>
+                  Open Developer Options
+                </button>
+                <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running}
+                  onClick={() => runPhoneAdb(['shell', 'am', 'start', '-a', 'android.settings.WIRELESS_SETTINGS'], 'Open Wireless Settings')}>
+                  Open Wireless Settings
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '14px 16px',
+              minHeight: 180,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+                Tools Output
+              </div>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {output || 'Run a phone tool action to see results here.'}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {tab === 'tweaks' && (
+          <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="general" platform={platform} onOpenPanel={onOpenPanel} embedded />
+        )}
+
+        {tab === 'maintenance' && (
+          platform === 'android'
+            ? <AndroidMaintenancePanel device={device} props={deviceProps} onNavigateToDevices={onNavigateToDevices} onOpenPanel={onOpenPanel} embedded />
+            : <DesktopMaintenancePanel device={device} deviceProps={deviceProps} onNavigateToDevices={onNavigateToDevices} onOpenPanel={onOpenPanel} embedded />
+        )}
+
+        {tab === 'backups' && (
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+              Backup &amp; Restore
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+              Open the dedicated Backup &amp; Restore panel to create, browse, and restore toolkit-managed backups.
+            </div>
+            <button className="btn-primary" style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }} onClick={() => onOpenPanel?.('backups')}>
+              Open Backup &amp; Restore
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── Drivers panel ─────────────────────────────────────────────────────────────
@@ -5151,8 +5549,8 @@ const HELP_PANELS = [
   { icon: '📦', label: 'Install APK',   desc: 'Drag & drop .apk or .xapk files onto the panel, or use the browse button. Queue multiple installs and track progress per file.', url: 'https://developer.android.com/tools/adb#install' },
   { icon: '🔍', label: 'Search APKs',   desc: 'Search F-Droid, GitHub Releases, and Aptoide simultaneously. Filter by source and install directly to your connected device.' },
   { icon: '🏪', label: 'App Stores',    desc: 'One-click sideload for major alternative app stores: Aurora Store, F-Droid, Obtainium, and more.' },
-  { icon: '🗂️', label: 'Manage Apps',   desc: 'List all installed packages, launch or force-stop apps, clear data, and backup APKs to your local machine.' },
-  { icon: '💾', label: 'Backup & Restore', desc: 'Pull APKs from any connected device, export no-root data, and restore a backed-up package to the same or a different device.' },
+  { icon: '🗂️', label: 'Manage Apps',   desc: 'List installed packages, launch or clear apps, and create toolkit-managed backups with APK splits, OBB, and shared app folders.' },
+  { icon: '💾', label: 'Backup & Restore', desc: 'Create or restore toolkit backups, including APK splits, OBB files, shared app folders, and no-root device exports.' },
   { icon: '📱', label: 'Devices',       desc: 'View real-time hardware info: model, Android version, battery, storage, resolution. Reboot to recovery, bootloader, or system.' },
   { icon: '🖥️', label: 'ADB & Shell',   desc: 'Full interactive ADB shell terminal, streaming logcat viewer with level filters, and TCP/UDP port forwarding manager.', url: 'https://developer.android.com/tools/adb' },
   { icon: '📂', label: 'File Browser', desc: 'Dual-pane file manager: browse and transfer files between your computer and Android device with push/pull.', url: 'https://developer.android.com/tools/adb#copyfiles' },
@@ -5666,7 +6064,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
               ['App',      'Android Toolkit by Team Nocturnal'],
-              ['Version',  'v2.0.0'],
+              ['Version',  'v2.0.1'],
               ['Built by', 'XsMagical — Team Nocturnal'],
               ['Stack',    'Tauri 2 + React + Vite + Rust'],
             ].map(([k, v]) => (
@@ -5998,10 +6396,9 @@ function AndroidDeviceHome({ device, props, loading, onOpenPanel }) {
   const quickActions = [
     { id: 'install', icon: '📦', label: 'Install APK', desc: 'Install APK and XAPK files' },
     { id: 'manage', icon: '🗂️', label: 'Manage Apps', desc: 'Launch, clear, and uninstall apps' },
-    { id: 'maintenance', icon: '🧹', label: 'Maintenance', desc: 'Safe cleanup and storage tools' },
-    { id: 'general', icon: '🔧', label: 'Tweaks', desc: 'Device tools and utility settings' },
+    { id: 'phone', icon: '📱', label: 'Phone Tools', desc: 'Tabs for tools, tweaks, and maintenance' },
     { id: 'adb', icon: '🖥️', label: 'ADB & Shell', desc: 'Shell commands and live log output' },
-    { id: 'advanced', icon: '⚙️', label: 'Advanced', desc: 'Root tools and advanced options' },
+    { id: 'advanced', icon: '⚙️', label: 'Device Tools', desc: 'Advanced device actions and permission controls' },
     { id: 'help', icon: '❓', label: 'Help', desc: 'Guides and setup information' },
   ]
 
@@ -6162,7 +6559,7 @@ function AndroidDeviceHome({ device, props, loading, onOpenPanel }) {
   )
 }
 
-function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNavigateToDevices, onOpenPanel }) {
+function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNavigateToDevices, onOpenPanel, embedded = false }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
   const [running, setRunning] = useState(false)
@@ -6440,16 +6837,8 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNaviga
     },
   ]
 
-  return (
-    <div className="panel-content">
-      <div className="panel-header-row">
-        <div>
-          <div className="panel-header-accent" />
-          <h1 className="panel-header">Maintenance</h1>
-        </div>
-      </div>
-
-      <div className="panel-scroll">
+  const content = (
+      <div className={embedded ? undefined : 'panel-scroll'}>
         <div style={{
           background: 'linear-gradient(135deg, rgba(20,184,166,0.09), rgba(59,130,246,0.05))',
           border: '1px solid rgba(20,184,166,0.18)',
@@ -6545,8 +6934,8 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNaviga
               <button className="btn-ghost" style={{ minHeight: 46, fontSize: 14 }} onClick={() => onOpenPanel?.('manage')}>
                 Open App Manager
               </button>
-              <button className="btn-ghost" style={{ minHeight: 46, fontSize: 14 }} onClick={() => onOpenPanel?.('general')}>
-                Open Tweaks & Battery Tools
+              <button className="btn-ghost" style={{ minHeight: 46, fontSize: 14 }} onClick={() => onOpenPanel?.('phone')}>
+                Open Phone Tools
               </button>
               <button className="btn-ghost" style={{ minHeight: 46, fontSize: 14 }} onClick={() => onOpenPanel?.('advanced')}>
                 Open Advanced Tools
@@ -6581,11 +6970,24 @@ function AndroidMaintenancePanel({ device, props, onNavigateToDevices: _onNaviga
           </pre>
         </div>
       </div>
+  )
+
+  if (embedded) return content
+
+  return (
+    <div className="panel-content">
+      <div className="panel-header-row">
+        <div>
+          <div className="panel-header-accent" />
+          <h1 className="panel-header">Maintenance</h1>
+        </div>
+      </div>
+      {content}
     </div>
   )
 }
 
-function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onOpenPanel: _onOpenPanel }) {
+function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onOpenPanel: _onOpenPanel, embedded = false }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
   const [running, setRunning] = useState(false)
@@ -6600,7 +7002,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
   const [cleanupStatus, setCleanupStatus] = useState({ title: 'Idle', detail: 'Run a cleanup action to see live progress and a completion summary here.', tone: 'neutral' })
   const [cleanupHistory, setCleanupHistory] = useState([])
   const [cleanupFindings, setCleanupFindings] = useState([])
-  const [cleanupInsight, setCleanupInsight] = useState('Run Analyze Junk to see what NTK thinks is worth cleaning before you delete anything.')
+  const [cleanupInsight, setCleanupInsight] = useState('Run Analyze Junk to see what Nocturnal Toolkit thinks is worth cleaning before you delete anything.')
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -6714,8 +7116,8 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
         setCleanupFindings(findings)
         setCleanupInsight(
           findings.length
-            ? `NTK found ${findings.length} large cleanup candidate${findings.length === 1 ? '' : 's'}. Review the list below before you remove anything.`
-            : 'NTK did not find any major cleanup candidates in the shared folders it scanned.'
+            ? `Nocturnal Toolkit found ${findings.length} large cleanup candidate${findings.length === 1 ? '' : 's'}. Review the list below before you remove anything.`
+            : 'Nocturnal Toolkit did not find any major cleanup candidates in the shared folders it scanned.'
         )
       }
       if (result) append(result)
@@ -6736,21 +7138,8 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
 
   const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
 
-  return (
-    <div className="panel-content">
-      <div className="panel-header-row">
-        <div style={{ minWidth: 0 }}>
-          <div className="panel-header-accent" />
-          <h1 className="panel-header">Maintenance</h1>
-        </div>
-        {noDevice && (
-          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
-            Connect Device
-          </button>
-        )}
-      </div>
-
-      <div className="panel-scroll">
+  const content = (
+      <div className={embedded ? undefined : 'panel-scroll'}>
         <div style={{
           background: 'linear-gradient(135deg, rgba(20,184,166,0.09), rgba(59,130,246,0.05))',
           border: '1px solid rgba(20,184,166,0.18)',
@@ -6870,7 +7259,7 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
             <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(234,179,8,0.07)', border: '1px solid rgba(234,179,8,0.18)' }}>
               <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--accent-yellow)', marginBottom: 4 }}>Analyze, review, then act</div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-                Run an analysis to load the device&apos;s packages, review NTK&apos;s manufacturer-aware guidance, select what you want to change, then disable, delete for user 0, or restore with batch actions.
+                Run an analysis to load the device&apos;s packages, review Nocturnal Toolkit&apos;s manufacturer-aware guidance, select what you want to change, then disable, delete for user 0, or restore with batch actions.
               </div>
             </div>
             <DebloatWorkbench serial={serial} noDevice={noDevice} running={running} setRunning={setRunning} append={append} deviceProps={deviceProps} device={device} />
@@ -6898,6 +7287,24 @@ function DesktopMaintenancePanel({ device, deviceProps, onNavigateToDevices, onO
           </pre>
         </div>
       </div>
+  )
+
+  if (embedded) return content
+
+  return (
+    <div className="panel-content">
+      <div className="panel-header-row">
+        <div style={{ minWidth: 0 }}>
+          <div className="panel-header-accent" />
+          <h1 className="panel-header">Maintenance</h1>
+        </div>
+        {noDevice && (
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            Connect Device
+          </button>
+        )}
+      </div>
+      {content}
     </div>
   )
 }
@@ -7132,7 +7539,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 
         <div style={sectionStyle}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-            NTK keeps the viewer running as a continuous in-app stream loop inside the Screen Mirror panel.
+            Nocturnal Toolkit keeps the viewer running as a continuous in-app stream loop inside the Screen Mirror panel.
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureScreenshot}>Screenshot</button>
@@ -9582,7 +9989,7 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
       const disabled = parseList(disabledRes.stdout)
       const rows = Array.from(parseList(allRes.stdout)).sort((a, b) => a.localeCompare(b)).map(pkg => ({
         pkg,
-        type: thirdParty.has(pkg) ? 'third-party' : 'system',
+        type: thirdParty.has(pkg) ? 'user' : 'system',
         disabled: disabled.has(pkg),
         ...analyzeDebloatPackage(pkg, { thirdParty: thirdParty.has(pkg), disabled: disabled.has(pkg), manufacturer: manufacturerHint, model: modelHint }),
       }))
@@ -9688,7 +10095,7 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
             <select value={pkgTypeFilter} onChange={e => setPkgTypeFilter(e.target.value)} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 8px', color: 'var(--text-primary)', fontSize: 11, outline: 'none' }}>
               <option value="all">All packages</option>
               <option value="system">System apps</option>
-              <option value="third-party">3rd-party apps</option>
+              <option value="user">User apps</option>
             </select>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -9713,7 +10120,7 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
                       <div style={{ fontSize: 11, fontFamily: "'JetBrains Mono','Courier New',monospace", color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.pkg}</div>
                       <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.45, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.description}</div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{row.type === 'third-party' ? '3rd-party' : 'System'}</span>
+                        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{row.type === 'user' ? 'User app' : 'System'}</span>
                         {row.disabled && <span style={{ fontSize: 9, color: 'var(--accent-yellow)' }}>Disabled</span>}
                         <span style={{ fontSize: 9, color: styleCfg.color, background: styleCfg.bg, borderRadius: 999, padding: '1px 6px' }}>{styleCfg.label}</span>
                       </div>
@@ -9736,12 +10143,12 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
                   <div style={{ fontSize: 12, fontFamily: "'JetBrains Mono','Courier New',monospace", color: 'var(--text-primary)', lineHeight: 1.5, marginBottom: 8, wordBreak: 'break-word' }}>{focusedRow.pkg}</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
                     <span style={{ fontSize: 10, color: styleCfg.color, background: styleCfg.bg, borderRadius: 999, padding: '2px 8px' }}>{styleCfg.label}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{focusedRow.type === 'third-party' ? '3rd-party' : 'System app'}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{focusedRow.type === 'user' ? 'User app' : 'System app'}</span>
                     {focusedRow.disabled && <span style={{ fontSize: 10, color: 'var(--accent-yellow)' }}>Disabled for user 0</span>}
                   </div>
                   <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>What it likely is</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>{focusedRow.description}</div>
-                  <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Why NTK flagged it</div>
+                  <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Why Nocturnal Toolkit flagged it</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>{focusedRow.reason}</div>
                   <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Safety guidance</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>{focusedRow.safety}</div>
@@ -9897,7 +10304,7 @@ function AdvancedPanel({ device, deviceProps: _deviceProps, onNavigateToDevices,
       <div className="panel-header-row">
         <div style={{ minWidth: 0 }}>
           <div className="panel-header-accent" />
-          <h1 className="panel-header">Pro Tools</h1>
+          <h1 className="panel-header">Device Tools</h1>
         </div>
         {noDevice && (
           <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', flexShrink: 0 }} onClick={onNavigateToDevices}>
@@ -9916,7 +10323,7 @@ function AdvancedPanel({ device, deviceProps: _deviceProps, onNavigateToDevices,
               padding: '16px 16px',
             }}>
               <div style={{ fontSize: 22, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
-                Advanced tools
+                Device tools
               </div>
               <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                 Keep this area for deeper actions, diagnostics, and anything that may need extra permissions.
@@ -10014,7 +10421,7 @@ function AdvancedPanel({ device, deviceProps: _deviceProps, onNavigateToDevices,
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                 <strong>Pair via Code</strong> uses the temporary <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>IP:pairing-port</code> and 6-digit code shown in Android&apos;s pairing popup.
                 <br />
-                <strong>Connect</strong> uses the separate <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>IP:connect-port</code> shown on the main <strong>Wireless debugging</strong> screen. The device will not appear in NTK until the connect step succeeds.
+                <strong>Connect</strong> uses the separate <code style={{ fontFamily: "'JetBrains Mono','Courier New',monospace" }}>IP:connect-port</code> shown on the main <strong>Wireless debugging</strong> screen. The device will not appear in Nocturnal Toolkit until the connect step succeeds.
               </div>
             </div>
 
@@ -10120,7 +10527,7 @@ function AdvancedPanel({ device, deviceProps: _deviceProps, onNavigateToDevices,
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>
               Debloat actions now live under <strong>Maintenance → Debloat &amp; App Care</strong> so package analysis, selection, and batch actions have a dedicated GUI.
             </div>
-            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => onOpenPanel?.('maintenance')}>
+            <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => onOpenPanel?.('phone')}>
               Open Debloat & App Care
             </button>
           </div>
@@ -10709,6 +11116,145 @@ function parsePackages(stdout) {
     .sort()
 }
 
+function adbCommandWorked(result) {
+  if (result?.ok) return true
+  const text = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`.toLowerCase()
+  return text.includes('success') || text.includes('pulled') || text.includes('pushed')
+}
+
+function fileNameFromPath(path) {
+  return String(path || '').split('/').filter(Boolean).pop() || ''
+}
+
+function safeBackupFolderName(pkg) {
+  return `${String(pkg || 'package').replace(/[^\w.-]+/g, '_')}__${Date.now()}`
+}
+
+async function remotePathExists(serial, remotePath) {
+  const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'ls', '-d', remotePath] })
+  const text = `${res?.stdout ?? ''}\n${res?.stderr ?? ''}`.toLowerCase()
+  return !!res?.stdout?.trim() && !text.includes('no such file') && !text.includes('cannot access')
+}
+
+async function collectLocalFiles(root, prefix = '') {
+  const entries = await readDir(root)
+  const files = []
+  for (const entry of entries) {
+    const name = entry.name || ''
+    if (!name) continue
+    const nextPrefix = prefix ? `${prefix}/${name}` : name
+    const fullPath = entry.path || await pathJoin(root, name)
+    if (entry.isDirectory) {
+      files.push(...await collectLocalFiles(fullPath, nextPrefix))
+    } else {
+      files.push(nextPrefix)
+    }
+  }
+  return files
+}
+
+async function backupPackageToToolkit({ serial, pkg, device, androidVersion }) {
+  const pathRes = await invoke('run_adb', {
+    args: ['-s', serial, 'shell', 'pm', 'path', pkg],
+  })
+  const apkPaths = String(pathRes.stdout || '')
+    .split('\n')
+    .map(line => line.trim().replace(/^package:/, ''))
+    .filter(Boolean)
+
+  if (!apkPaths.length) throw new Error('Could not resolve APK path on device')
+
+  const dl = await downloadDir()
+  const backupsRoot = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups')
+  await mkdir(backupsRoot, { recursive: true })
+  const backupDir = await pathJoin(backupsRoot, safeBackupFolderName(pkg))
+  await mkdir(backupDir, { recursive: true })
+
+  const pulledFiles = []
+  for (const apkPath of apkPaths) {
+    const apkName = fileNameFromPath(apkPath) || `split_${pulledFiles.length}.apk`
+    const localApk = await pathJoin(backupDir, apkName)
+    const pullRes = await invoke('run_adb', { args: ['-s', serial, 'pull', apkPath, localApk] })
+    if (!adbCommandWorked(pullRes)) {
+      throw new Error(pullRes.stderr?.trim() || `Failed to pull ${apkName}`)
+    }
+    pulledFiles.push(apkName)
+  }
+
+  const remoteDirs = [
+    { remote: `/sdcard/Android/obb/${pkg}`, localFolder: 'obb', label: 'obb' },
+    { remote: `/sdcard/Android/data/${pkg}`, localFolder: 'shared-data', label: 'shared-data' },
+    { remote: `/sdcard/Android/media/${pkg}`, localFolder: 'shared-media', label: 'shared-media' },
+  ]
+
+  for (const item of remoteDirs) {
+    if (!(await remotePathExists(serial, item.remote))) continue
+    const localRoot = await pathJoin(backupDir, item.localFolder)
+    await mkdir(localRoot, { recursive: true })
+    const pullRes = await invoke('run_adb', { args: ['-s', serial, 'pull', item.remote, localRoot] })
+    if (!adbCommandWorked(pullRes)) continue
+    const localPkgDir = await pathJoin(localRoot, pkg)
+    if (await exists(localPkgDir)) {
+      const files = await collectLocalFiles(localPkgDir, `${item.localFolder}/${pkg}`)
+      pulledFiles.push(...files)
+    }
+  }
+
+  const manifest = {
+    packageName: pkg,
+    date: new Date().toISOString(),
+    deviceModel: device?.model ?? 'Unknown Device',
+    androidVersion: androidVersion ?? null,
+    files: pulledFiles,
+    containsObb: pulledFiles.some(name => name.startsWith(`obb/${pkg}/`)),
+    containsSharedData: pulledFiles.some(name => name.startsWith(`shared-data/${pkg}/`) || name.startsWith(`shared-media/${pkg}/`)),
+  }
+
+  await writeTextFile(
+    await pathJoin(backupDir, 'manifest.json'),
+    JSON.stringify(manifest, null, 2),
+  )
+
+  return { backupDir, manifest }
+}
+
+async function restoreToolkitBackup({ serial, backup }) {
+  const entries = await readDir(backup.backupDir)
+  const apkNames = entries
+    .filter(entry => entry.isFile !== false && entry.name?.toLowerCase().endsWith('.apk'))
+    .map(entry => entry.name)
+
+  if (!apkNames.length) throw new Error(`No APK files found in ${backup.backupDir}`)
+
+  const apkPaths = await Promise.all(apkNames.map(name => pathJoin(backup.backupDir, name)))
+  const installRes = apkPaths.length === 1
+    ? await invoke('run_adb', { args: ['-s', serial, 'install', '-r', apkPaths[0]] })
+    : await invoke('run_adb', { args: ['-s', serial, 'install-multiple', '-r', ...apkPaths] })
+
+  if (!adbCommandWorked(installRes)) {
+    const detail = installRes.stderr?.trim() || installRes.stdout?.trim() || 'Install failed'
+    throw new Error(detail)
+  }
+
+  const restoreDirs = [
+    { localFolder: 'obb', remoteParent: '/sdcard/Android/obb' },
+    { localFolder: 'shared-data', remoteParent: '/sdcard/Android/data' },
+    { localFolder: 'shared-media', remoteParent: '/sdcard/Android/media' },
+  ]
+
+  for (const item of restoreDirs) {
+    const localRoot = await pathJoin(backup.backupDir, item.localFolder)
+    if (!(await exists(localRoot))) continue
+    const localPkgDir = await pathJoin(localRoot, backup.packageName)
+    if (!(await exists(localPkgDir))) continue
+    await invoke('run_adb', { args: ['-s', serial, 'shell', 'mkdir', '-p', item.remoteParent] })
+    const pushRes = await invoke('run_adb', { args: ['-s', serial, 'push', localPkgDir, item.remoteParent] })
+    if (!adbCommandWorked(pushRes)) {
+      throw new Error(pushRes.stderr?.trim() || `Failed to restore ${item.localFolder}`)
+    }
+  }
+}
+
 function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
   const [busy, setBusy] = useState(null) // 'launch' | 'uninstall' | 'clear' | 'backup'
 
@@ -10736,41 +11282,13 @@ function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
   async function backup() {
     setBusy('backup')
     try {
-      // Get APK path(s) on device
-      const pathRes = await invoke('run_adb', {
-        args: ['-s', serial, 'shell', 'pm', 'path', pkg],
-      })
-      const apkPath = pathRes.stdout?.trim().replace(/^package:/, '')
-      if (!apkPath) throw new Error('Could not resolve APK path on device')
-
-      // Create local backup directory
-      const dl   = await downloadDir()
-      const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups', pkg)
-      await mkdir(root, { recursive: true })
-
-      // Pull APK to local dir
-      const localApk = await pathJoin(root, 'base.apk')
-      const pullRes  = await invoke('run_adb', {
-        args: ['-s', serial, 'pull', apkPath, localApk],
-      })
-      if (!pullRes.stdout?.includes('pulled') && !pullRes.ok) {
-        throw new Error(pullRes.stderr?.trim() || 'adb pull failed')
-      }
-
-      // Write manifest
-      const manifest = {
-        packageName:    pkg,
-        date:           new Date().toISOString(),
-        deviceModel:    device?.model ?? 'Unknown Device',
-        androidVersion: androidVersion ?? null,
-        files:          ['base.apk'],
-      }
-      await writeTextFile(
-        await pathJoin(root, 'manifest.json'),
-        JSON.stringify(manifest, null, 2),
-      )
-
-      addToast?.(`Backed up ${pkg}`, 'success')
+      const { manifest } = await backupPackageToToolkit({ serial, pkg, device, androidVersion })
+      const detail = [
+        `${(manifest.files || []).filter(name => name.endsWith('.apk')).length} APK`,
+        manifest.containsObb ? 'OBB' : null,
+        manifest.containsSharedData ? 'shared data' : null,
+      ].filter(Boolean).join(' + ')
+      addToast?.(`Backed up ${pkg}${detail ? ` (${detail})` : ''}`, 'success')
     } catch (e) {
       addToast?.(`Backup failed: ${String(e).slice(0, 80)}`, 'error')
     }
@@ -10824,7 +11342,7 @@ function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
           disabled={!!busy}
           onClick={backup}
         >
-          {busy === 'backup' ? '…' : 'Backup'}
+          {busy === 'backup' ? '…' : 'Full Backup'}
         </button>
         <button
           className="btn-danger"
@@ -10839,7 +11357,7 @@ function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
   )
 }
 
-function ManageAppsPanel({ device, deviceProps, onNavigateToDevices }) {
+function ManageAppsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel }) {
   const [packages, setPackages]   = useState([])
   const [loading, setLoading]     = useState(false)
   const [search, setSearch]       = useState('')
@@ -10910,6 +11428,13 @@ function ManageAppsPanel({ device, deviceProps, onNavigateToDevices }) {
         >
           Refresh
         </button>
+        <button
+          className="btn-ghost"
+          style={{ flexShrink: 0 }}
+          onClick={() => onOpenPanel?.('backups')}
+        >
+          Backup &amp; Restore
+        </button>
       </div>
 
       <div className="panel-scroll">
@@ -10923,6 +11448,35 @@ function ManageAppsPanel({ device, deviceProps, onNavigateToDevices }) {
             </button>
           </div>
         )}
+
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 14,
+          flexWrap: 'wrap',
+          background: 'linear-gradient(135deg, rgba(20,184,166,0.08), rgba(59,130,246,0.04))',
+          border: '1px solid rgba(20,184,166,0.16)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '14px 16px',
+          marginBottom: 16,
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+              Toolkit Backup &amp; Restore
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+              Create a toolkit-managed backup from here, then restore it from Backup &amp; Restore. Each backup now saves APK splits, OBB files, and shared app folders that ADB can reach.
+            </div>
+          </div>
+          <button
+            className="btn-primary"
+            style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', flexShrink: 0 }}
+            onClick={() => onOpenPanel?.('backups')}
+          >
+            Open Backup &amp; Restore
+          </button>
+        </div>
 
         {/* Search bar */}
         <div style={{
@@ -10966,7 +11520,7 @@ function ManageAppsPanel({ device, deviceProps, onNavigateToDevices }) {
         {/* Empty — no apps found */}
         {!loading && !noDevice && packages.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-            No third-party apps found on this device.
+            No user-installed apps found on this device.
           </div>
         )}
 
@@ -11043,12 +11597,16 @@ function formatDate(iso) {
     + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
-function BackupsPanel({ device, onNavigateToDevices }) {
+function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel }) {
   const [backups, setBackups]     = useState([])
   const [loading, setLoading]     = useState(true)
   const [backupsRoot, setBackupsRoot] = useState(null)
   const [restoring, setRestoring] = useState({}) // pkg → true
   const [exporting, setExporting] = useState({})
+  const [packages, setPackages]   = useState([])
+  const [packagesLoading, setPackagesLoading] = useState(false)
+  const [backupTarget, setBackupTarget] = useState('')
+  const [backingUp, setBackingUp] = useState(false)
   const [toasts, setToasts]       = useState([])
 
   const serial   = device?.serial
@@ -11097,6 +11655,47 @@ function BackupsPanel({ device, onNavigateToDevices }) {
 
   useEffect(() => { loadBackups() }, [])
 
+  useEffect(() => {
+    if (!serial) {
+      setPackages([])
+      setBackupTarget('')
+      return
+    }
+    setPackagesLoading(true)
+    invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-3'] })
+      .then(res => {
+        const next = parsePackages(res.stdout ?? '')
+        setPackages(next)
+        setBackupTarget(current => current && next.includes(current) ? current : (next[0] || ''))
+      })
+      .finally(() => setPackagesLoading(false))
+  }, [serial])
+
+  async function createBackup() {
+    if (noDevice) {
+      addToast('Connect a device to create a backup', 'error')
+      return
+    }
+    if (!backupTarget) {
+      addToast('Choose an app to back up', 'error')
+      return
+    }
+    setBackingUp(true)
+    try {
+      await backupPackageToToolkit({
+        serial,
+        pkg: backupTarget,
+        device,
+        androidVersion: deviceProps?.android ?? null,
+      })
+      await loadBackups()
+      addToast(`${backupTarget} backup created`, 'success')
+    } catch (e) {
+      addToast(`Backup failed: ${String(e).slice(0, 90)}`, 'error')
+    }
+    setBackingUp(false)
+  }
+
   async function doRestore(backup) {
     if (noDevice) {
       addToast('Connect a device to restore', 'error')
@@ -11104,30 +11703,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
     }
     setRestoring(r => ({ ...r, [backup.packageName]: true }))
     try {
-      // Scan the backup folder directly — more reliable than trusting manifest.files
-      const entries  = await readDir(backup.backupDir)
-      const apkNames = entries
-        .filter(e => e.isFile !== false && e.name?.toLowerCase().endsWith('.apk'))
-        .map(e => e.name)
-
-      if (!apkNames.length) {
-        throw new Error(`No APK files found in ${backup.backupDir}`)
-      }
-
-      const apkPaths = await Promise.all(
-        apkNames.map(name => pathJoin(backup.backupDir, name))
-      )
-
-      // Single APK → install -r; split APKs → install-multiple -r
-      const res = apkPaths.length === 1
-        ? await invoke('run_adb', { args: ['-s', serial, 'install', '-r', apkPaths[0]] })
-        : await invoke('run_adb', { args: ['-s', serial, 'install-multiple', '-r', ...apkPaths] })
-
-      if (!res.stdout?.toLowerCase().includes('success') && !res.ok) {
-        const detail = res.stderr?.trim() || res.stdout?.trim() || 'Install failed'
-        throw new Error(detail)
-      }
-
+      await restoreToolkitBackup({ serial, backup })
       addToast(`${backup.packageName} restored`, 'success')
     } catch (e) {
       addToast(`Restore failed: ${String(e).slice(0, 100)}`, 'error')
@@ -11228,14 +11804,14 @@ function BackupsPanel({ device, onNavigateToDevices }) {
             Backup & Restore
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Restore APK backups, browse saved packages, and export no-root device data like SMS, call logs, contacts, and device info to your computer.
+            Create and restore toolkit-managed app backups from one place. App backups include APK splits, OBB files, and shared app folders that ADB can access, alongside no-root exports like SMS, call logs, contacts, and device info.
           </div>
         </div>
 
         {/* No device warning */}
         {noDevice && (
           <div className="warning-banner" style={{ marginBottom: 20 }}>
-            <span>No device connected — restore is disabled</span>
+            <span>No device connected — backup and restore are disabled</span>
             <button
               className="btn-ghost"
               style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
@@ -11245,6 +11821,55 @@ function BackupsPanel({ device, onNavigateToDevices }) {
             </button>
           </div>
         )}
+
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px', marginBottom: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+            Toolkit App Backup
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+            Use these buttons to make a real toolkit backup before you restore later. The toolkit saves every APK split it can read, plus OBB files and shared app folders under Android data and media when the device exposes them over ADB.
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+            <select
+              value={backupTarget}
+              onChange={e => setBackupTarget(e.target.value)}
+              disabled={noDevice || packagesLoading || packages.length === 0 || backingUp}
+              style={{
+                minWidth: 260,
+                maxWidth: '100%',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '8px 10px',
+                color: 'var(--text-primary)',
+                fontSize: 'var(--text-sm)',
+                outline: 'none',
+              }}
+            >
+              {packages.length === 0 && <option value="">{packagesLoading ? 'Loading apps…' : 'No user-installed apps found'}</option>}
+              {packages.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+            </select>
+            <button
+              className="btn-primary"
+              style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }}
+              disabled={noDevice || packagesLoading || !backupTarget || backingUp}
+              onClick={createBackup}
+            >
+              {backingUp ? 'Backing Up…' : 'Back Up Selected App'}
+            </button>
+            <button
+              className="btn-ghost"
+              style={{ padding: '6px 14px', fontSize: 'var(--text-xs)' }}
+              disabled={packagesLoading || backingUp}
+              onClick={() => onOpenPanel?.('manage')}
+            >
+              Open Manage Apps
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Restores reinstall the saved APKs and copy the saved OBB and shared folders back onto the device. Internal app sandbox data still depends on root or app-specific export support.
+          </div>
+        </div>
 
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px', marginBottom: 18 }}>
           <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
@@ -11291,7 +11916,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
               No backups yet
             </div>
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              Back up apps from the Manage Apps panel or export no-root data above
+              Use the Toolkit App Backup buttons above to create your first full backup
             </div>
           </div>
         )}
@@ -11302,8 +11927,8 @@ function BackupsPanel({ device, onNavigateToDevices }) {
             {backups.map(backup => {
               const isRestoring = restoring[backup.packageName]
               const apkCount    = (backup.files ?? []).filter(f => f.endsWith('.apk')).length
-              const hasObb      = (backup.files ?? []).some(f => f.endsWith('.obb'))
-              const hasData     = (backup.files ?? []).some(f => f === 'data.tar')
+              const hasObb      = backup.containsObb || (backup.files ?? []).some(f => f.startsWith(`obb/${backup.packageName}/`) || f.endsWith('.obb'))
+              const hasData     = backup.containsSharedData || (backup.files ?? []).some(f => f.startsWith(`shared-data/${backup.packageName}/`) || f.startsWith(`shared-media/${backup.packageName}/`))
 
               return (
                 <div key={backup.backupDir} style={{
@@ -11348,7 +11973,7 @@ function BackupsPanel({ device, onNavigateToDevices }) {
                         fontSize: 10, fontWeight: 'var(--font-bold)', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
                         background: 'rgba(34,197,94,0.1)', color: 'var(--accent-green)',
                       }}>
-                        Data
+                        Shared Data
                       </span>
                     )}
                   </div>
@@ -11677,17 +12302,16 @@ function MainApp() {
       case 'install':  return <InstallApkPanel device={selected} onNavigateToDevices={nav} externalQueue={sharedInstallQueue} onExternalQueueConsumed={() => setSharedInstallQueue([])} platform={platform} />
       case 'search':   return <SearchApkPanel device={selected} onNavigateToDevices={nav} onNavigateToInstall={() => setActivePanel('install')} onAddToQueue={item => setSharedInstallQueue(q => [...q, item])} platform={platform} />
       case 'stores':   return <AppStoresPanel device={selected} onNavigateToDevices={nav} platform={platform} />
-      case 'manage':   return <ManageAppsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} />
-      case 'backups':  return <BackupsPanel device={selected} onNavigateToDevices={nav} />
+      case 'manage':   return <ManageAppsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
+      case 'backups':  return <BackupsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
+      case 'phone':    return <PhoneToolsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'adb':      return <AdbLogsPanel device={selected} onNavigateToDevices={nav} platform={platform} />
       case 'tv':       return <TVPanel device={selected} onNavigateToDevices={nav} />
       case 'quest':    return <QuestPanel device={selected} onNavigateToDevices={nav} platform={platform} />
       case 'files':    return <FilesPanel device={selected} onNavigateToDevices={nav} />
       case 'rom':      return <RomPanel device={selected} onNavigateToDevices={nav} />
-      case 'general':  return <GeneralPanel device={selected} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
-      case 'maintenance': return platform === 'android'
-        ? <AndroidMaintenancePanel device={selected} props={props} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
-        : <DesktopMaintenancePanel device={selected} deviceProps={props} onNavigateToDevices={nav} />
+      case 'general':  return <PhoneToolsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
+      case 'maintenance': return <PhoneToolsPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
       case 'companion': return <DesktopDeviceCompanionPanel device={selected} onNavigateToDevices={nav} onOpenPanel={setActivePanel} />
       case 'drivers':  return platform === 'windows' ? <DriversPanel platform={platform} /> : <HelpDocsPanel onShowWelcome={() => setShowWelcome(true)} />
       case 'advanced': return <AdvancedPanel device={selected} deviceProps={props} onNavigateToDevices={nav} platform={platform} onOpenPanel={setActivePanel} />
@@ -11698,16 +12322,10 @@ function MainApp() {
   }
 
   // Android menu sections — exclude desktop-only panels
-  const androidNavSections = NAV_SECTIONS.map(s => {
-    let items = s.items.filter(item => !ANDROID_HIDDEN_PANELS.has(item.id))
-    if (platform === 'android' && s.label === 'POWER TOOLS') {
-      const insertAt = Math.max(items.findIndex(item => item.id === 'general'), 0)
-      const next = [...items]
-      next.splice(insertAt, 0, ...ANDROID_EXTRA_NAV_ITEMS)
-      items = next
-    }
-    return { ...s, items }
-  }).filter(section => section.items.length > 0)
+  const androidNavSections = NAV_SECTIONS.map(s => ({
+    ...s,
+    items: s.items.filter(item => !ANDROID_HIDDEN_PANELS.has(item.id)),
+  })).filter(section => section.items.length > 0)
 
   const desktopNavSections = NAV_SECTIONS.map(section => ({
     ...section,
@@ -11796,7 +12414,7 @@ function MainApp() {
               color: 'var(--text-muted)',
               letterSpacing: '0.04em',
             }}>
-              v2.0.0
+              v2.0.1
             </div>
           </div>
         )}

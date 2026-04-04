@@ -11,9 +11,16 @@ if ! command -v create-dmg >/dev/null 2>&1; then
 fi
 
 APP_NAME="$(node -p "JSON.parse(require('fs').readFileSync('$TAURI_CONFIG', 'utf8')).productName")"
+APP_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('$TAURI_CONFIG', 'utf8')).version")"
+RAW_ARCH="$(uname -m)"
+case "$RAW_ARCH" in
+  arm64|aarch64) APP_ARCH="arm64" ;;
+  x86_64|amd64) APP_ARCH="x64" ;;
+  *) APP_ARCH="$RAW_ARCH" ;;
+esac
 APP_BUNDLE_DIR="$ROOT_DIR/src-tauri/target/release/bundle/macos"
 APP_PATH="$APP_BUNDLE_DIR/$APP_NAME.app"
-DMG_NAME="${APP_NAME// /-}-Installer.dmg"
+DMG_NAME="${APP_NAME// /-}-Installer_${APP_VERSION}_${APP_ARCH}.dmg"
 DMG_PATH="$ROOT_DIR/$DMG_NAME"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/android-toolkit-dmg.XXXXXX")"
 
