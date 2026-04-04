@@ -20,7 +20,7 @@ case "$RAW_ARCH" in
 esac
 APP_BUNDLE_DIR="$ROOT_DIR/src-tauri/target/release/bundle/macos"
 APP_PATH="$APP_BUNDLE_DIR/$APP_NAME.app"
-DMG_NAME="${APP_NAME// /-}-Installer_${APP_VERSION}_${APP_ARCH}.dmg"
+DMG_NAME="${APP_NAME// /-}_${APP_VERSION}_${APP_ARCH}.dmg"
 DMG_PATH="$ROOT_DIR/$DMG_NAME"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/android-toolkit-dmg.XXXXXX")"
 
