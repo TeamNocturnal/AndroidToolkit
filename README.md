@@ -609,6 +609,54 @@ Expected output will usually include Linux bundle directories such as:
 
 Depending on the host distro and installed tooling, Tauri may emit one or more Linux package artifacts inside those folders.
 
+### Install Nightly Linux Builds
+
+Nightly GitHub releases now use filenames like:
+
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb`
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage`
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm`
+
+Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically in the desktop app menu.
+
+#### Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon
+
+```bash
+cd ~/Downloads
+sudo apt update
+sudo apt install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+```
+
+#### Fedora
+
+Use the nightly `.rpm`:
+
+```bash
+cd ~/Downloads
+sudo dnf install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm
+```
+
+#### openSUSE
+
+Use the nightly `.rpm`:
+
+```bash
+cd ~/Downloads
+sudo zypper install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm
+```
+
+#### Arch Linux / EndeavourOS / Manjaro
+
+Use the nightly `AppImage` directly:
+
+```bash
+cd ~/Downloads
+chmod +x ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
+./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
+```
+
+If you want an app launcher on Arch-based systems, integrate the AppImage with your desktop environment or create a `.desktop` entry that points to the AppImage.
+
 ### Notes For Linux
 
 - This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
