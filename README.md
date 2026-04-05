@@ -58,7 +58,15 @@ Download the package that best matches your distro:
 - Fedora / openSUSE: `.rpm`
 - Arch Linux / EndeavourOS / Manjaro: prefer `AppImage` when available
 
+Nightly Linux releases use filenames like:
+
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb`
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage`
+- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm`
+
 #### Debian-based distros
+
+Option 1: install from `Downloads`:
 
 ```bash
 cd ~/Downloads
@@ -66,23 +74,45 @@ sudo apt update
 sudo apt install ./Android-Toolkit_<version>_amd64.deb
 ```
 
+Option 2: type the command, then drag the `.deb` file into Terminal so it pastes the full path:
+
+```bash
+sudo apt install 
+```
+
 #### Fedora
+
+Option 1: install from `Downloads`:
 
 ```bash
 cd ~/Downloads
 sudo dnf install ./Android-Toolkit-<version>-1.x86_64.rpm
 ```
 
+Option 2: type the command, then drag the `.rpm` file into Terminal:
+
+```bash
+sudo dnf install 
+```
+
 #### openSUSE
+
+Option 1: install from `Downloads`:
 
 ```bash
 cd ~/Downloads
 sudo zypper install ./Android-Toolkit-<version>-1.x86_64.rpm
 ```
 
+Option 2: type the command, then drag the `.rpm` file into Terminal:
+
+```bash
+sudo zypper install 
+```
+
 #### Arch Linux / EndeavourOS / Manjaro
 
-Make the `AppImage` executable, then launch it:
+Option 1: launch it from `Downloads`:
 
 ```bash
 cd ~/Downloads
@@ -90,7 +120,22 @@ chmod +x Android-Toolkit-*.AppImage
 ./Android-Toolkit-*.AppImage
 ```
 
+Option 2: type each command first, then drag the AppImage into Terminal so it pastes the full path:
+
+```bash
+chmod +x 
+./
+```
+
+If you are on Wayland with NVIDIA and an older nightly aborts before the window opens, retry it once with:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./
+```
+
 If your desktop menu does not refresh after installing a Linux package, sign out and back in once or restart the desktop shell/session.
+
+Linux packages and launchers are bundled under the `Utility` app category so they land in a normal Utilities-style menu section instead of `Lost & Found`.
 
 ## What Android Toolkit by Team Nocturnal Is Now
 
@@ -497,84 +542,6 @@ Expected output will usually include Linux bundle directories such as:
 
 Depending on the host distro and installed tooling, Tauri may emit one or more Linux package artifacts inside those folders.
 
-### Install Nightly Linux Builds
-
-Nightly GitHub releases now use filenames like:
-
-- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb`
-- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage`
-- `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm`
-
-Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically in the desktop app menu.
-
-#### Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon
-
-Download the nightly `.deb`, type the install command, then drag the file into Terminal so your desktop pastes the full path:
-
-```bash
-sudo apt install 
-```
-
-#### Fedora
-
-Download the nightly `.rpm`, type the install command, then drag the file into Terminal so Fedora pastes the full path for you:
-
-```bash
-sudo dnf install 
-```
-
-#### openSUSE
-
-Download the nightly `.rpm`, type the install command, then drag the file into Terminal so openSUSE pastes the full path:
-
-```bash
-sudo zypper install 
-```
-
-#### Arch Linux / EndeavourOS / Manjaro
-
-Download the nightly `AppImage`, make it executable once, then drag it into Terminal to launch it:
-
-```bash
-chmod +x 
-./
-```
-
-If you are on Wayland with NVIDIA and an older nightly aborts before the window opens, retry it once with:
-
-```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 ./
-```
-
-Tip: type the command first, then drag the downloaded file into Terminal so your desktop fills in the exact path.
-
-### Notes For Linux
-
-- This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
-- Debian, Fedora, Arch Linux, and openSUSE builds should use the native package manager dependencies above instead of copying over macOS or Windows setup steps.
-- Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
-- `AppRun` inside `*.AppDir` is a staging helper created during AppImage packaging. It is not the supported launch target. Launch the finished `.AppImage`, a native package, or the release binary instead.
-- If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri build`. That environment variable avoids a common AppImage runtime issue during the packaging step.
-- If a nightly AppImage aborts immediately on Arch, CachyOS, EndeavourOS, or Manjaro under Wayland with NVIDIA, launch it once with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Newer nightlies set that automatically at startup.
-- Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically because the Tauri Debian bundle generates a Desktop file and installs the application icons.
-- Linux packages and launchers are now bundled under the `Utility` app category so they land in a normal Utilities-style menu section instead of `Lost & Found`.
-- Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
-
-### 1. Clone The Repo
-
-```bash
-git clone https://github.com/TeamNocturnal/AndroidToolkit.git
-cd AndroidToolkit
-git config user.name "XsMagical"
-git config user.email "XsMagical@Team-Nocturnal.com"
-```
-
-### 2. Install JavaScript Dependencies
-
-```bash
-npm install
-```
-
 ## Android Build Notes
 
 Android builds are optional and are separate from the desktop app.
@@ -717,9 +684,9 @@ git config user.email "XsMagical@Team-Nocturnal.com"
 npm install
 ```
 
-## Advanced
+### Advanced
 
-### GitHub Sync
+#### GitHub Sync
 
 This repo should stay in sync through `GitHub`, not through `OneDrive` or another live-sync folder.
 
@@ -758,6 +725,14 @@ git checkout main
 git pull --ff-only origin main
 npm install
 ```
+
+#### Linux Notes
+
+- This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
+- Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
+- `AppRun` inside `*.AppDir` is a staging helper created during AppImage packaging. It is not the supported launch target. Launch the finished `.AppImage`, a native package, or the release binary instead.
+- If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri build`. That environment variable avoids a common AppImage runtime issue during the packaging step.
+- Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 Run `npm install` after pulling any time `package.json` or `package-lock.json` changed.
 
