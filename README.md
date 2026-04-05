@@ -374,6 +374,15 @@ sudo apt install \
   npm
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
+npm -v
+node -v
+```
+
+If you want a quick ADB check on Debian before opening the app:
+
+```bash
+adb version
+adb devices
 ```
 
 ### Arch Linux
@@ -382,6 +391,8 @@ Based on the current Tauri v2 prerequisites:
 
 ```bash
 sudo pacman -Syu
+sudo pacman -S npm
+npm -v
 sudo pacman -S --needed \
   webkit2gtk-4.1 \
   base-devel \
@@ -397,6 +408,23 @@ sudo pacman -S --needed \
   npm
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
+node -v
+npm -v
+```
+
+If `npm` was not already present on your Arch system, the minimal install flow is:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S npm
+npm -v
+```
+
+If you want a quick ADB check on Arch before opening the app:
+
+```bash
+adb version
+adb devices
 ```
 
 ### Fedora
@@ -419,6 +447,15 @@ sudo dnf install \
 sudo dnf group install "c-development"
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
+node -v
+npm -v
+```
+
+If you want a quick ADB check on Fedora before opening the app:
+
+```bash
+adb version
+adb devices
 ```
 
 ### openSUSE
@@ -440,6 +477,15 @@ sudo zypper in \
 sudo zypper in -t pattern devel_basis
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
+node -v
+npm -v
+```
+
+If you want a quick ADB check on openSUSE before opening the app:
+
+```bash
+adb version
+adb devices
 ```
 
 ### Recommended Local Path
@@ -458,12 +504,30 @@ npm install
 npm run tauri dev
 ```
 
+### Quick ADB Sanity Check
+
+Before debugging Android Toolkit itself, make sure the host can see your phone:
+
+```bash
+adb version
+adb start-server
+adb devices
+```
+
+If you see an empty device list on Linux, finish the USB rules steps in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md), reconnect the phone, unlock it, and accept the USB debugging prompt on the device.
+
 ### Compile Linux App
 
 Use the same desktop build command on `Debian`, `Fedora`, `Arch Linux`, and `openSUSE` after installing the distro-specific dependencies above:
 
 ```bash
 npm run tauri build
+```
+
+For Linux hosts, the repo also includes a helper that sets the AppImage extraction fallback some desktop setups need during bundling:
+
+```bash
+npm run build:linux
 ```
 
 Expected output will usually include Linux bundle directories such as:
@@ -479,6 +543,9 @@ Depending on the host distro and installed tooling, Tauri may emit one or more L
 - This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
 - Debian, Fedora, Arch Linux, and openSUSE builds should use the native package manager dependencies above instead of copying over macOS or Windows setup steps.
 - Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
+- `AppRun` inside `*.AppDir` is a staging helper created during AppImage packaging. It is not the supported launch target. Launch the finished `.AppImage`, a native package, or the release binary instead.
+- If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `npm run build:linux`. That helper exports `APPIMAGE_EXTRACT_AND_RUN=1`, which avoids a common AppImage runtime issue during the packaging step.
+- If you want a launcher entry after building locally, run `npm run linux:desktop`. It installs a `~/.local/share/applications/android-toolkit.desktop` entry and the matching icon for the latest built AppImage or release binary.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 ## Android Build Notes
