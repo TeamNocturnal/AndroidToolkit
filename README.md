@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./docs/assets/team-nocturnal-logo.png" alt="Team Nocturnal" width="280" />
+
 # Android Toolkit by Team Nocturnal
 
 ### A cleaner control center for sideloading, ADB, Fastboot, TV streaming tools, Quest workflows, backups, and Android power-user tasks.
@@ -11,6 +13,30 @@
 </div>
 
 > Android Toolkit started as a simpler install-and-ADB helper, but it has grown into a full desktop and Android management suite for phones, tablets, TVs, Quest headsets, sideloading, backups, wireless debugging, maintenance, and recovery work.
+
+<p align="center">
+  <img src="./docs/assets/readme-hero.png" alt="Android Toolkit hero art" width="860" />
+</p>
+
+<p align="center">
+  <img src="./docs/assets/toolkit-icon.png" alt="Android Toolkit icon" width="92" />
+</p>
+
+## Visual Snapshot
+
+<p align="center">
+  <img src="./docs/assets/getting-started-dark.png" alt="Android Toolkit getting started screen" width="47%" />
+  <img src="./docs/assets/devices-dark.png" alt="Android Toolkit devices screen" width="47%" />
+</p>
+
+<p align="center">
+  <img src="./docs/assets/tv-streaming-dark.png" alt="Android Toolkit TV and streaming tools" width="47%" />
+  <img src="./docs/assets/manage-apps-dark.png" alt="Android Toolkit manage apps screen" width="47%" />
+</p>
+
+| Brand | Mood | Focus |
+| --- | --- | --- |
+| Dark glass styling, Team Nocturnal branding, and a desktop-first layout modeled after the website. | Built to feel more like a polished toolkit dashboard than a generic utility wrapper. | Device setup, TV tools, app management, and power-user Android workflows in one visual surface. |
 
 ## Quick Start
 
@@ -29,6 +55,16 @@
 | Power Tools | File browser, backups, cleanup, diagnostics, tweaks, ROM tools, shell access |
 | Quest | Quest-focused sideloading and headset setup flows |
 | Android App | Mobile-first toolkit flow with local shell, logcat, install, and maintenance tools |
+
+## Experience
+
+<p align="center">
+  <img src="./docs/assets/toolkit-icon.png" alt="Android Toolkit icon" width="84" />
+</p>
+
+| Look | Workflow | Audience |
+| --- | --- | --- |
+| Dark, branded, TV-friendly, and desktop-focused | Install, connect, sideload, manage, tweak, back up, and recover from one place | Power users, streamers, Android TV users, Quest users, and anyone tired of juggling shell commands |
 
 ## Install Android Toolkit
 
