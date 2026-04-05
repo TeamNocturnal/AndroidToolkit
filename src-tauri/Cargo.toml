@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.0.2"
+version = "2.0.3"
 description = "Android Toolkit by Team Nocturnal"
 authors = ["XsMagical <XsMagical@Team-Nocturnal.com>", "Team Nocturnal"]
 license = "UNLICENSED"

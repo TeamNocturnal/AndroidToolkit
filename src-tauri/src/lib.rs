@@ -1048,6 +1048,14 @@ async fn install_from_url(
         return Err("Downloaded file is empty".to_string());
     }
 
+    if data.len() < 4 || &data[..2] != b"PK" {
+        let preview = String::from_utf8_lossy(&data[..data.len().min(120)]).replace('\n', " ");
+        return Err(format!(
+            "Downloaded file does not look like an APK. First bytes: {}",
+            preview
+        ));
+    }
+
     let final_total = content_length
         .map(format_bytes)
         .unwrap_or_else(|| format_bytes(received));
@@ -1100,7 +1108,7 @@ async fn install_from_url(
     }
 
     let output = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(180),
         app.shell()
             .sidecar("adb")
             .map_err(|e| e.to_string())?
@@ -1108,7 +1116,7 @@ async fn install_from_url(
             .output(),
     )
     .await
-    .map_err(|_| "adb install timed out after 60s".to_string())?
+    .map_err(|_| "adb install timed out after 180s".to_string())?
     .map_err(|e| e.to_string())?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();

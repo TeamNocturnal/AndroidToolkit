@@ -524,12 +524,6 @@ Use the same desktop build command on `Debian`, `Fedora`, `Arch Linux`, and `ope
 npm run tauri build
 ```
 
-For Linux hosts, the repo also includes a helper that sets the AppImage extraction fallback some desktop setups need during bundling:
-
-```bash
-npm run build:linux
-```
-
 Expected output will usually include Linux bundle directories such as:
 
 - `src-tauri/target/release/bundle/appimage/`
@@ -538,14 +532,67 @@ Expected output will usually include Linux bundle directories such as:
 
 Depending on the host distro and installed tooling, Tauri may emit one or more Linux package artifacts inside those folders.
 
+### Install The Nightly `.deb`
+
+Nightly GitHub releases can include a `.deb` package for Linux. The generated Tauri Debian package already includes the app metadata, icons, and a Desktop entry, so after install you should get an `Android Toolkit` launcher in your app menu like a normal desktop app.
+
+If your desktop menu does not refresh immediately after install, sign out and back in once, or restart the desktop shell/session.
+
+#### Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon / other Debian-based distros
+
+Download the nightly `.deb`, then install it with:
+
+```bash
+cd ~/Downloads
+sudo apt update
+sudo apt install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+```
+
+That `apt install ./file.deb` form is preferred because it installs the package and resolves dependencies in one step.
+
+#### Fedora
+
+Fedora is `rpm`-native, so the nightly `.rpm` is the better choice when available. If you only have the `.deb`, install `alien` first and convert it:
+
+```bash
+cd ~/Downloads
+sudo dnf install alien
+sudo alien -r Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+sudo dnf install ./android-toolkit-2.0.3-1.x86_64.rpm
+```
+
+#### openSUSE
+
+openSUSE is also `rpm`-native, so prefer the nightly `.rpm` when available. If you only have the `.deb`, convert it first:
+
+```bash
+cd ~/Downloads
+sudo zypper install alien
+sudo alien -r Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+sudo zypper install ./android-toolkit-2.0.3-1.x86_64.rpm
+```
+
+#### Arch Linux / EndeavourOS / Manjaro
+
+Arch-based systems should prefer the nightly `AppImage` or a native package recipe, but if you need to work from the `.deb` release asset you can extract it with `debtap` and install the converted package:
+
+```bash
+cd ~/Downloads
+sudo pacman -S --needed debtap
+sudo debtap Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+sudo pacman -U ./android-toolkit-2.0.3-1-x86_64.pkg.tar.zst
+```
+
+After install, search for `Android Toolkit` in your desktop launcher or app menu.
+
 ### Notes For Linux
 
 - This branch currently bundles Linux `adb` and `fastboot` sidecars for `x86_64-unknown-linux-gnu`.
 - Debian, Fedora, Arch Linux, and openSUSE builds should use the native package manager dependencies above instead of copying over macOS or Windows setup steps.
 - Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
 - `AppRun` inside `*.AppDir` is a staging helper created during AppImage packaging. It is not the supported launch target. Launch the finished `.AppImage`, a native package, or the release binary instead.
-- If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `npm run build:linux`. That helper exports `APPIMAGE_EXTRACT_AND_RUN=1`, which avoids a common AppImage runtime issue during the packaging step.
-- If you want a launcher entry after building locally, run `npm run linux:desktop`. It installs a `~/.local/share/applications/android-toolkit.desktop` entry and the matching icon for the latest built AppImage or release binary.
+- If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri build`. That environment variable avoids a common AppImage runtime issue during the packaging step.
+- Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically because the Tauri Debian bundle generates a Desktop file and installs the application icons.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 ## Android Build Notes
