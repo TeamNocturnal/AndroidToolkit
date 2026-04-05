@@ -10,7 +10,7 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.3'
+const CURRENT_VERSION = '2.0.4'
 const DISPLAY_VERSION = import.meta.env.VITE_APP_BUILD_VERSION || CURRENT_VERSION
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases?per_page=20'
 const GITHUB_RELEASES_PAGE = 'https://github.com/TeamNocturnal/AndroidToolkit/releases'
@@ -5468,6 +5468,493 @@ function TVPanel({ device, onNavigateToDevices }) {
   return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="tv" />
 }
 
+const SECURITY_CATEGORIES = [
+  { id: 'all', label: 'All' },
+  { id: 'security', label: 'Security' },
+  { id: 'vpn', label: 'VPN' },
+]
+
+const SECURITY_TRUST = {
+  top: { label: 'Top Pick', color: 'var(--accent)', bg: 'rgba(168,85,247,0.16)' },
+  trusted: { label: 'Trusted', color: 'var(--accent-green)', bg: 'rgba(34,197,94,0.16)' },
+  premium: { label: 'Premium', color: 'var(--accent-yellow)', bg: 'rgba(245,158,11,0.16)' },
+}
+
+async function resolveGithubLatestApk(repo, matcher) {
+  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    headers: { Accept: 'application/vnd.github+json' },
+  })
+  if (!response.ok) throw new Error(`GitHub release lookup failed for ${repo}: ${response.status}`)
+  const data = await response.json()
+  const asset = (data.assets || []).find(asset => matcher(asset?.name || ''))
+  if (!asset?.browser_download_url) throw new Error(`No APK asset found for ${repo}`)
+  return { url: asset.browser_download_url, filename: asset.name, pageUrl: data.html_url || '' }
+}
+
+function playStoreSearchUrl(query) {
+  return `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`
+}
+
+function playStoreIntentUrl(query) {
+  return `market://search?q=${encodeURIComponent(query)}&c=apps`
+}
+
+const SECURITY_APPS = [
+  {
+    id: 'varynx',
+    category: 'security',
+    source: 'play',
+    name: 'VARYNX-2.0',
+    icon: '🛡️',
+    badge: 'top',
+    tagline: 'Offline behavioral guardian',
+    pkg: '',
+    playQuery: 'VARYNX-2.0',
+    desc: 'Monitors for hardware skimmers, network anomalies, and device tampering without cloud telemetry.',
+    tags: ['Offline', 'Behavioral Guard', 'Tamper Checks'],
+  },
+  {
+    id: 'hypatia',
+    category: 'security',
+    source: 'fdroid',
+    name: 'Hypatia',
+    icon: '🧬',
+    badge: 'trusted',
+    tagline: 'Local FOSS malware scanner',
+    pkg: 'us.spotco.malwarescanner',
+    apkUrl: 'https://f-droid.org/repo/us.spotco.malwarescanner_314.apk',
+    pageUrl: 'https://f-droid.org/packages/us.spotco.malwarescanner/',
+    desc: 'Privacy-focused malware scanner that works 100% locally with near-zero battery drain.',
+    tags: ['F-Droid', 'Local Only', 'Low Battery'],
+  },
+  {
+    id: 'bitdefender',
+    category: 'security',
+    source: 'play',
+    name: 'Bitdefender Mobile Security',
+    icon: '🦠',
+    badge: 'premium',
+    tagline: 'Cloud-assisted mobile antivirus',
+    pkg: 'com.bitdefender.antivirus',
+    playQuery: 'Bitdefender Mobile Security',
+    desc: 'Cloud-based scanning, SMS scam alerts, and App Lock protection for Android devices.',
+    tags: ['Realtime', 'SMS Alerts', 'App Lock'],
+  },
+  {
+    id: 'norton',
+    category: 'security',
+    source: 'play',
+    name: 'Norton 360 Deluxe',
+    icon: '🧠',
+    badge: 'premium',
+    tagline: 'Identity and malware protection suite',
+    pkg: 'com.symantec.mobilesecurity',
+    playQuery: 'Norton 360 Deluxe',
+    desc: 'Dark Web Monitoring, phishing defense, malware scanning, and broader identity protection features.',
+    tags: ['Identity', 'Dark Web', 'Phishing'],
+  },
+  {
+    id: 'aegis',
+    category: 'security',
+    source: 'github',
+    name: 'Aegis Authenticator',
+    icon: '🔐',
+    badge: 'trusted',
+    tagline: 'Open-source 2FA vault',
+    pkg: 'com.beemdevelopment.aegis',
+    githubRepo: 'beemdevelopment/Aegis',
+    githubMatcher: name => /^aegis-.*\.apk$/i.test(name),
+    pageUrl: 'https://f-droid.org/packages/com.beemdevelopment.aegis/',
+    desc: 'Encrypted local backups, strong 2FA management, and a clean Material You-friendly interface.',
+    tags: ['2FA', 'Encrypted Backups', 'FOSS', 'GitHub'],
+  },
+  {
+    id: 'sophos',
+    category: 'security',
+    source: 'play',
+    name: 'Sophos Intercept X',
+    icon: '📶',
+    badge: 'trusted',
+    tagline: 'Free mobile security suite',
+    pkg: 'com.sophos.smsec',
+    playQuery: 'Sophos Intercept X',
+    desc: 'Free mobile security with a secure QR scanner, link checking, and Wi-Fi security advice.',
+    tags: ['Free', 'QR Scanner', 'Wi-Fi Advisor'],
+  },
+  {
+    id: 'protonvpn',
+    category: 'vpn',
+    source: 'github',
+    name: 'Proton VPN',
+    icon: '🟣',
+    badge: 'top',
+    tagline: 'Swiss no-logs VPN',
+    pkg: 'ch.protonvpn.android',
+    githubRepo: 'ProtonVPN/android-app',
+    githubMatcher: name => /\.apk$/i.test(name) && /direct-release/i.test(name),
+    desc: 'Open-source, no-logs VPN with Secure Core, strong privacy defaults, and a strong free tier.',
+    tags: ['No Logs', 'Secure Core', 'Free Tier', 'GitHub'],
+  },
+  {
+    id: 'mullvad',
+    category: 'vpn',
+    source: 'github',
+    name: 'Mullvad VPN',
+    icon: '🦊',
+    badge: 'trusted',
+    tagline: 'Maximum anonymity VPN',
+    pkg: 'net.mullvad.mullvadvpn',
+    githubRepo: 'mullvad/mullvadvpn-app',
+    githubMatcher: name => /^MullvadVPN-.*\.apk$/i.test(name) && !/\.asc$/i.test(name),
+    desc: 'Account-number-based VPN with flat pricing and a strong anonymity-first posture.',
+    tags: ['Anonymous', 'Flat Rate', 'Privacy', 'GitHub'],
+  },
+  {
+    id: 'surfshark',
+    category: 'vpn',
+    source: 'play',
+    name: 'Surfshark',
+    icon: '🌊',
+    badge: 'premium',
+    tagline: 'Family-friendly VPN with GPS spoofing',
+    pkg: 'com.surfshark.vpnclient.android',
+    playQuery: 'Surfshark',
+    desc: 'Unlimited simultaneous connections with GPS spoofing and a consumer-friendly multi-device setup.',
+    tags: ['Unlimited Devices', 'GPS Spoofing', 'Families'],
+  },
+  {
+    id: 'nordvpn',
+    category: 'vpn',
+    source: 'play',
+    name: 'NordVPN',
+    icon: '🌐',
+    badge: 'premium',
+    tagline: 'Fast VPN with DNS-layer protection',
+    pkg: 'com.nordvpn.android',
+    playQuery: 'NordVPN',
+    desc: 'Fast, feature-rich VPN with Threat Protection style DNS filtering for ads, trackers, and malware.',
+    tags: ['Fast', 'Threat Protection', 'DNS Filtering'],
+  },
+  {
+    id: 'ivpn',
+    category: 'vpn',
+    source: 'official',
+    name: 'IVPN',
+    icon: '🔒',
+    badge: 'trusted',
+    tagline: 'Audited privacy-hardened VPN',
+    pkg: 'net.ivpn.client',
+    browserUrl: 'https://www.ivpn.net/apps-android/',
+    desc: 'Multi-hop routing, transparent infrastructure, and a security-forward service design.',
+    tags: ['Multi-hop', 'Audited', 'Official Site'],
+  },
+]
+
+function SecurityAppCard({ app, serial, noDevice, platform, status, onStatusChange, addToast }) {
+  const [phase, setPhase] = useState('idle')
+  const [errMsg, setErrMsg] = useState('')
+  const busy = phase === 'downloading' || phase === 'installing' || phase === 'opening'
+  const isInstalled = status === 'installed'
+  const isChecking = status === 'checking'
+  const badge = SECURITY_TRUST[app.badge] || SECURITY_TRUST.trusted
+
+  async function recheckStatus() {
+    if (!app.pkg || !serial) return
+    onStatusChange(app.id, 'checking')
+    try {
+      const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', app.pkg] })
+      onStatusChange(app.id, res.stdout?.includes(`package:${app.pkg}`) ? 'installed' : 'not_installed')
+    } catch {
+      onStatusChange(app.id, 'not_installed')
+    }
+  }
+
+  async function openOnDevice() {
+    if (!serial) return false
+    const targetUrl = app.source === 'play'
+      ? playStoreIntentUrl(app.playQuery || app.name)
+      : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+    try {
+      setPhase('opening')
+      await invoke('run_adb', {
+        args: ['-s', serial, 'shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', targetUrl],
+      })
+      addToast(`Opened ${app.name} on the device`, 'success')
+      setPhase('idle')
+      return true
+    } catch (error) {
+      setPhase('error')
+      setErrMsg(String(error))
+      return false
+    }
+  }
+
+  async function handlePrimary() {
+    setErrMsg('')
+    if ((app.source === 'fdroid' && app.apkUrl) || app.source === 'github') {
+      if (noDevice) return
+      setPhase('downloading')
+      const timer = setTimeout(() => setPhase(p => (p === 'downloading' ? 'installing' : p)), 1800)
+      try {
+        const resolved = app.source === 'github'
+          ? await resolveGithubLatestApk(app.githubRepo, app.githubMatcher)
+          : { url: app.apkUrl }
+        const res = await invoke('install_from_url', {
+          serial,
+          url: resolved.url,
+          filename: resolved.filename || `security_${app.id}.apk`,
+        })
+        clearTimeout(timer)
+        if (platform === 'android' && res?.localPath) await openUrl(res.localPath)
+        if (res.ok) {
+          addToast(platform === 'android' && res?.localPath
+            ? `${app.name} opened in the Android package installer`
+            : `${app.name} installed successfully`, 'success')
+          setPhase('idle')
+          recheckStatus()
+        } else {
+          setPhase('error')
+          setErrMsg(res.stderr?.trim() || res.stdout?.trim() || 'Install failed')
+          addToast(`Failed to install ${app.name}`, 'error')
+        }
+      } catch (error) {
+        clearTimeout(timer)
+        setPhase('error')
+        setErrMsg(String(error))
+        addToast(`Failed to install ${app.name}`, 'error')
+      }
+      return
+    }
+
+    if (!noDevice && (app.source === 'play' || app.source === 'official')) {
+      const opened = await openOnDevice()
+      if (opened) return
+    }
+
+    await openUrl(
+      app.source === 'play'
+        ? playStoreSearchUrl(app.playQuery || app.name)
+        : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+    )
+    setPhase('idle')
+  }
+
+  const actionLabel = app.source === 'fdroid'
+    ? (busy ? (phase === 'downloading' ? 'Downloading…' : 'Installing…') : isInstalled ? 'Reinstall' : 'Install')
+    : app.source === 'github'
+    ? (busy ? (phase === 'downloading' ? 'Downloading…' : 'Installing…') : isInstalled ? 'Reinstall' : 'Install')
+    : busy
+      ? 'Opening…'
+      : (!noDevice ? 'Open on Device' : app.source === 'play' ? 'Open Play Store' : 'Open Site')
+
+  return (
+    <div style={{
+      background: 'var(--bg-surface)',
+      border: `1px solid ${isInstalled ? 'rgba(34,197,94,0.22)' : 'var(--border-subtle)'}`,
+      borderRadius: 'var(--radius-lg)',
+      padding: '14px 12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+      minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{app.icon}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+            <span style={{ fontWeight: 'var(--font-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+              {app.name}
+            </span>
+            <span style={{ fontSize: 9, fontWeight: 'var(--font-bold)', padding: '1px 5px', borderRadius: 4, background: badge.bg, color: badge.color }}>
+              {badge.label}
+            </span>
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+            {app.tagline}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+        {app.desc}
+      </div>
+
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: badge.color }}>
+          {app.source === 'fdroid' ? 'F-Droid' : app.source === 'github' ? 'GitHub' : app.source === 'play' ? 'Google Play' : 'Official Site'}
+        </span>
+        {app.tags.map(tag => (
+          <span key={tag} style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)' }}>
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 'var(--text-xs)', minHeight: 14 }}>
+        {isChecking && serial
+          ? <span style={{ color: 'var(--text-muted)' }}>Checking…</span>
+          : isInstalled
+            ? <span style={{ color: 'var(--accent-green)', fontWeight: 'var(--font-semibold)' }}>● Installed</span>
+            : app.source === 'fdroid' || app.source === 'github'
+              ? <span style={{ color: noDevice ? 'var(--text-muted)' : 'var(--accent-teal)' }}>{noDevice ? 'Connect a device to install' : 'Ready for direct install'}</span>
+              : <span style={{ color: 'var(--text-muted)' }}>{!noDevice ? 'Can open on device or in browser' : 'Opens store page in browser'}</span>}
+      </div>
+
+      {phase === 'error' && errMsg && (
+        <div style={{ fontSize: 10, color: 'var(--accent-red)', wordBreak: 'break-word' }}>{errMsg}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          className={app.source === 'fdroid' || app.source === 'github' ? 'btn-success' : 'btn-primary'}
+          style={{ ...btnStyle, flex: 1 }}
+          disabled={((app.source === 'fdroid' || app.source === 'github') && noDevice) || busy}
+          onClick={handlePrimary}
+        >
+          {actionLabel}
+        </button>
+        <button
+          className="btn-ghost"
+          style={{ ...btnStyle, flex: 1 }}
+          onClick={() => openUrl(
+            app.source === 'play'
+              ? playStoreSearchUrl(app.playQuery || app.name)
+              : app.source === 'github'
+                ? `https://github.com/${app.githubRepo}/releases`
+                : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+          )}
+        >
+          {app.source === 'fdroid' ? 'View Page' : app.source === 'github' ? 'Releases' : app.source === 'play' ? 'Browser' : 'Official'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
+  const [catFilter, setCatFilter] = useState('all')
+  const [statuses, setStatuses] = useState({})
+  const [toasts, setToasts] = useState([])
+  const serial = device?.serial
+  const noDevice = !device || device.status !== 'device'
+
+  useEffect(() => {
+    if (!serial) {
+      setStatuses({})
+      return
+    }
+    const fresh = {}
+    SECURITY_APPS.forEach(app => {
+      if (app.pkg) fresh[app.id] = 'checking'
+    })
+    setStatuses(fresh)
+    SECURITY_APPS.forEach(app => {
+      if (!app.pkg) return
+      invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', app.pkg] })
+        .then(res => {
+          const installed = res.stdout?.includes(`package:${app.pkg}`) ?? false
+          setStatuses(s => ({ ...s, [app.id]: installed ? 'installed' : 'not_installed' }))
+        })
+        .catch(() => setStatuses(s => ({ ...s, [app.id]: 'not_installed' })))
+    })
+  }, [serial])
+
+  function addToast(msg, type = 'success') {
+    const id = crypto.randomUUID()
+    setToasts(items => [...items, { id, msg, type }])
+    setTimeout(() => setToasts(items => items.filter(item => item.id !== id)), 3000)
+  }
+
+  const filtered = catFilter === 'all'
+    ? SECURITY_APPS
+    : SECURITY_APPS.filter(app => app.category === catFilter)
+
+  const directCount = SECURITY_APPS.filter(app => app.source === 'fdroid').length
+
+  return (
+    <div className="panel-content" style={{ position: 'relative', padding: 0 }}>
+      {noDevice && (
+        <div className="warning-banner" style={{ marginBottom: 20 }}>
+          <span>No device connected — direct F-Droid installs are disabled, but Play Store and official links still work.</span>
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            View Devices
+          </button>
+        </div>
+      )}
+
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(34,197,94,0.18)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '16px 18px',
+        marginBottom: 18,
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-green)', marginBottom: 8 }}>
+          Security & VPN Master List
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Curated 2026-ready Android security and VPN recommendations. F-Droid entries install directly from the toolkit. Play Store and official-site entries open on your connected phone when possible, or in your browser as a fallback.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <span style={{ fontSize: 10, color: 'var(--accent)', background: 'rgba(168,85,247,0.15)', borderRadius: 999, padding: '2px 8px' }}>Top Picks: VARYNX-2.0 + Proton VPN</span>
+          <span style={{ fontSize: 10, color: 'var(--accent-green)', background: 'rgba(34,197,94,0.14)', borderRadius: 999, padding: '2px 8px' }}>{directCount} direct F-Droid installs</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
+        {SECURITY_CATEGORIES.map(cat => (
+          <button
+            key={cat.id}
+            className={catFilter === cat.id ? 'btn-primary' : 'btn-ghost'}
+            style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', borderRadius: 99 }}
+            onClick={() => setCatFilter(cat.id)}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+        {filtered.map(app => (
+          <SecurityAppCard
+            key={app.id}
+            app={app}
+            serial={serial}
+            noDevice={noDevice}
+            platform={platform}
+            status={statuses[app.id]}
+            onStatusChange={(id, value) => setStatuses(s => ({ ...s, [id]: value }))}
+            addToast={addToast}
+          />
+        ))}
+      </div>
+
+      <div style={{
+        position: 'fixed', bottom: 24, right: 24,
+        display: 'flex', flexDirection: 'column', gap: 8,
+        zIndex: 9999, pointerEvents: 'none',
+      }}>
+        {toasts.map(toast => (
+          <div key={toast.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: toast.type === 'success' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+            border: `1px solid ${toast.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+            color: toast.type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)',
+            borderRadius: 'var(--radius-md)',
+            padding: '10px 14px',
+            fontSize: 'var(--text-sm)',
+            maxWidth: 340,
+            backdropFilter: 'blur(8px)',
+          }}>
+            <span>{toast.type === 'success' ? '✓' : '✗'}</span>
+            <span>{toast.msg}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, onOpenPanel }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
@@ -5530,6 +6017,7 @@ function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, o
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
           {[
             { id: 'tools', label: 'Tools' },
+            { id: 'security', label: 'Security' },
             { id: 'tweaks', label: 'Tweaks' },
             { id: 'maintenance', label: 'Maintenance' },
             { id: 'backups', label: 'Backup & Restore' },
@@ -5668,6 +6156,10 @@ function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, o
 
         {tab === 'tweaks' && (
           <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="general" platform={platform} onOpenPanel={onOpenPanel} embedded />
+        )}
+
+        {tab === 'security' && (
+          <SecurityHubPanel device={device} onNavigateToDevices={onNavigateToDevices} platform={platform} />
         )}
 
         {tab === 'maintenance' && (
