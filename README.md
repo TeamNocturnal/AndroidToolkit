@@ -177,107 +177,7 @@ If your desktop menu does not refresh after installing a Linux package, sign out
   - Linux: `~/Projects/AndroidToolkit`
   - Windows: `C:\Projects\AndroidToolkit`
 
-### 1. Clone The Repo
-
-```bash
-git clone https://github.com/TeamNocturnal/AndroidToolkit.git
-cd AndroidToolkit
-git config user.name "XsMagical"
-git config user.email "XsMagical@Team-Nocturnal.com"
-```
-
-### 2. Install JavaScript Dependencies
-
-```bash
-npm install
-```
-
-### 3. Check Your Git Remote
-
-```bash
-git remote -v
-```
-
-The main remote should point to:
-
-```bash
-https://github.com/TeamNocturnal/AndroidToolkit.git
-```
-
-### 4. Optional Git Identity Setup
-
-If you have not set your Git name and email on this machine yet, configure them with your own details:
-
-```bash
-git config user.name "Your Name"
-git config user.email "you@example.com"
-```
-
-### 5. Pull The Latest Changes
-
-```bash
-git checkout main
-git pull --ff-only origin main
-npm install
-```
-
-Run `npm install` after pulling any time `package.json` or `package-lock.json` changed.
-
-### 6. Check Your Local Changes
-
-```bash
-git status
-git diff --stat
-```
-
-### 7. Push Your Updates Back To GitHub
-
-```bash
-git checkout main
-git pull --ff-only origin main
-git status
-git add -A
-git commit -m "Short clear summary of changes"
-git push origin main
-```
-
-### 8. Use A Branch For Bigger Changes
-
-If the update is larger or you want a cleaner review path, use a branch:
-
-```bash
-git checkout main
-git pull --ff-only origin main
-git checkout -b codex/short-change-name
-git add -A
-git commit -m "Short clear summary of changes"
-git push -u origin codex/short-change-name
-```
-
-### 9. If Git Says Your Branch Is Behind
-
-```bash
-git checkout main
-git pull --ff-only origin main
-```
-
-Then run your commit or branch steps again.
-
-### 10. Safe Cleanup Before Rebuilding
-
-If you need a clean rebuild, these folders are safe to remove:
-
-```bash
-rm -rf dist
-rm -rf node_modules
-rm -rf src-tauri/target
-rm -rf src-tauri/gen/android/app/build
-rm -rf src-tauri/gen/android/build
-```
-
-Do not remove the repo itself, `.git`, or the committed Android project files under `src-tauri/gen/android`.
-
-## Build On macOS
+## macOS Setup
 
 ### Requirements
 
@@ -368,7 +268,7 @@ Use this flow each time macOS blocks it:
 
 If you install from the DMG, expect to repeat the same `Open Anyway` process once for the installer and once again for the app itself on first launch.
 
-## Build On Windows
+## Windows Setup
 
 ### Requirements
 
@@ -411,7 +311,7 @@ npm run tauri build
 - If you plan to build Android on Windows too, keep your Android SDK / NDK / Java paths configured in your environment first.
 - The older environment notes in [WINDOWS_ENV.md](/Users/xs/Library/CloudStorage/OneDrive-Personal/Team%20Nocturnal/Projects/Nocturnal%20Toolkit/WINDOWS_ENV.md) are still useful as a machine-specific reference.
 
-## Build On Linux
+## Linux Setup
 
 Linux desktop builds are now supported for `x86_64` systems, including `Debian`, `Fedora`, `Arch Linux`, and `openSUSE`.
 
@@ -667,6 +567,21 @@ If you want an app launcher on Arch-based systems, integrate the AppImage with y
 - Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically because the Tauri Debian bundle generates a Desktop file and installs the application icons.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
+### 1. Clone The Repo
+
+```bash
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
+git config user.name "XsMagical"
+git config user.email "XsMagical@Team-Nocturnal.com"
+```
+
+### 2. Install JavaScript Dependencies
+
+```bash
+npm install
+```
+
 ## Android Build Notes
 
 Android builds are optional and are separate from the desktop app.
@@ -719,9 +634,95 @@ npm run tauri build
 npm run tauri android build
 ```
 
+## Advanced
+
+### GitHub Sync
+
+This repo should stay in sync through `GitHub`, not through `OneDrive` or another live-sync folder.
+
+#### Clone the repo
+
+```bash
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
+```
+
+#### Check your remote
+
+```bash
+git remote -v
+```
+
+The main remote should point to:
+
+```bash
+https://github.com/TeamNocturnal/AndroidToolkit.git
+```
+
+#### Optional Git identity setup
+
+If you have not set your Git name and email on this machine yet, configure them with your own details:
+
+```bash
+git config user.name "Your Name"
+git config user.email "you@example.com"
+```
+
+#### Pull the latest changes
+
+```bash
+git checkout main
+git pull --ff-only origin main
+npm install
+```
+
+Run `npm install` after pulling any time `package.json` or `package-lock.json` changed.
+
+#### Check your local changes
+
+```bash
+git status
+git diff --stat
+```
+
+#### Push your updates back to GitHub
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git status
+git add -A
+git commit -m "Short clear summary of changes"
+git push origin main
+```
+
+#### Use a branch when the change is bigger
+
+If the update is larger or you want a cleaner review path, use a branch:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git checkout -b codex/short-change-name
+git add -A
+git commit -m "Short clear summary of changes"
+git push -u origin codex/short-change-name
+```
+
+#### If Git says your branch is behind
+
+```bash
+git checkout main
+git pull --ff-only origin main
+```
+
+Then run your commit or branch steps again.
+
 ## Cleaning Build Output
 
-Build output can get very large. These folders are safe to remove before rebuilding:
+### Safe cleanup before rebuilding
+
+If you need a clean rebuild, these folders are safe to remove:
 
 ```bash
 rm -rf dist
@@ -732,6 +733,8 @@ rm -rf src-tauri/gen/android/build
 ```
 
 On Windows, remove the same folders manually or with PowerShell.
+
+Do not remove the repo itself, `.git`, or the committed Android project files under `src-tauri/gen/android`.
 
 ## Backlog
 
