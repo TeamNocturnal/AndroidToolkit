@@ -543,6 +543,12 @@ chmod +x ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
 ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
 ```
 
+If you are on Wayland with NVIDIA and an older nightly aborts before the window opens, retry it once with:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
+```
+
 If you want an app launcher on Arch-based systems, integrate the AppImage with your desktop environment or create a `.desktop` entry that points to the AppImage.
 
 ### Notes For Linux
@@ -552,6 +558,7 @@ If you want an app launcher on Arch-based systems, integrate the AppImage with y
 - Bundled `adb` and `fastboot` do not remove the need for Linux USB permissions. If a phone does not appear in `adb devices` or `fastboot devices`, follow the Linux USB setup guide in [LINUX_USB.md](/Users/xs/Projects/AndroidToolkit/LINUX_USB.md).
 - `AppRun` inside `*.AppDir` is a staging helper created during AppImage packaging. It is not the supported launch target. Launch the finished `.AppImage`, a native package, or the release binary instead.
 - If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri build`. That environment variable avoids a common AppImage runtime issue during the packaging step.
+- If a nightly AppImage aborts immediately on Arch, CachyOS, EndeavourOS, or Manjaro under Wayland with NVIDIA, launch it once with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Newer nightlies set that automatically at startup.
 - Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically because the Tauri Debian bundle generates a Desktop file and installs the application icons.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 

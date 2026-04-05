@@ -1676,7 +1676,7 @@ async fn capture_screen_frame(
             }));
         }
 
-        use base64::{Engine as _, engine::general_purpose};
+        use base64::{engine::general_purpose, Engine as _};
         let b64 = general_purpose::STANDARD.encode(&output.stdout);
 
         Ok(serde_json::json!({
@@ -1904,7 +1904,13 @@ async fn start_live_stream(
                         let message = if status.code == Some(0) {
                             "Live stream stopped.".to_string()
                         } else {
-                            format!("Live stream ended{}.", status.code.map(|c| format!(" with code {c}")).unwrap_or_default())
+                            format!(
+                                "Live stream ended{}.",
+                                status
+                                    .code
+                                    .map(|c| format!(" with code {c}"))
+                                    .unwrap_or_default()
+                            )
                         };
                         let _ = handle.emit(
                             "live-stream:status",
@@ -2101,8 +2107,29 @@ fn kill_adb_sidecar(app: tauri::AppHandle) {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn configure_linux_webkit_env() {
+    let is_wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || matches!(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            Some("wayland")
+        );
+
+    if is_wayland_session && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // Work around upstream WebKitGTK/Wry rendering failures seen on
+        // Wayland + NVIDIA systems where GBM/EGL initialization aborts.
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        println!("[linux] Set WEBKIT_DISABLE_DMABUF_RENDERER=1 for Wayland session compatibility");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    configure_linux_webkit_env();
+
     let builder = tauri::Builder::default()
         .manage(LogcatProcess(Mutex::new(None)))
         .manage(LiveStreamProcess(Mutex::new(None)))
