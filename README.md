@@ -1,62 +1,60 @@
+<div align="center">
+
 # Android Toolkit by Team Nocturnal
 
-Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workflows, app management, TV tools, Quest tools, maintenance, backups, and power-user Android workflows from a cleaner UI.
+### A cleaner control center for sideloading, ADB, Fastboot, TV streaming tools, Quest workflows, backups, and Android power-user tasks.
 
-[Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · [Changelog](./CHANGELOG.md) · `macOS` · `Windows` · `Linux` · `Android`
+[Official Site](https://toolkit.team-nocturnal.com) • [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) • [Changelog](./CHANGELOG.md) • [All Releases](https://github.com/TeamNocturnal/AndroidToolkit/releases)
+
+`macOS` `Windows` `Linux` `Android` `Tauri 2` `Rust` `React` `Vite`
+
+</div>
+
+> Android Toolkit started as a simpler install-and-ADB helper, but it has grown into a full desktop and Android management suite for phones, tablets, TVs, Quest headsets, sideloading, backups, wireless debugging, maintenance, and recovery work.
+
+## Quick Start
+
+| Track | Link | Use It For |
+| --- | --- | --- |
+| Stable | [Latest stable release](https://github.com/TeamNocturnal/AndroidToolkit/releases/latest) | Normal installs and public release builds |
+| Nightly | [Nightly and preview releases](https://github.com/TeamNocturnal/AndroidToolkit/releases) | Latest fixes, newest tooling, and in-progress features |
+
+## Why It Pops
+
+| Area | What You Get |
+| --- | --- |
+| Device Control | USB + wireless ADB, pairing flows, saved devices, transport details, recovery shortcuts |
+| Apps & Stores | APK queue installs, split package handling, app stores, package tools, app management |
+| TV & Streaming | Fire TV, Android TV, Google TV, Shield, ONN, launcher tools, guided setup, media installs |
+| Power Tools | File browser, backups, cleanup, diagnostics, tweaks, ROM tools, shell access |
+| Quest | Quest-focused sideloading and headset setup flows |
+| Android App | Mobile-first toolkit flow with local shell, logcat, install, and maintenance tools |
 
 ## Install Android Toolkit
 
-Use the GitHub releases page for ready-to-install builds:
-
-- Stable: [github.com/TeamNocturnal/AndroidToolkit/releases/latest](https://github.com/TeamNocturnal/AndroidToolkit/releases/latest)
-- All releases, including nightlies: [github.com/TeamNocturnal/AndroidToolkit/releases](https://github.com/TeamNocturnal/AndroidToolkit/releases)
-
 ### macOS
 
-Download the `.dmg` for your Mac:
+| Download | Install |
+| --- | --- |
+| Grab the `.dmg` that matches your Mac: `aarch64` / `arm64` for Apple Silicon, `x86_64` for Intel. | 1. Download the `.dmg`  2. Open it  3. Drag `Android Toolkit.app` into `Applications`  4. Launch it from `Applications` |
 
-- Apple Silicon: `aarch64` / `arm64`
-- Intel: `x86_64`
-
-Install flow:
-
-1. Download the release `.dmg`
-2. Open it
-3. Drag `Android Toolkit.app` into `Applications`
-4. Launch the app from `Applications`
-
-Because current macOS builds are ad-hoc signed and not notarized, Gatekeeper may block the app the first time. If that happens:
-
-1. Try to open the blocked `.dmg` or `.app`
-2. Click `Done`
-3. Open `System Settings`
-4. Go to `Privacy & Security`
-5. Scroll to the `Security` section
-6. Click `Open Anyway`
-7. Confirm and launch it again
-
-If you install from the DMG, you may need to repeat that process once for the DMG and once again for the app itself.
+> macOS note: builds are ad-hoc signed and not notarized yet. If Gatekeeper blocks the DMG or app, open `System Settings` -> `Privacy & Security` -> `Open Anyway`, then launch again. You may need to approve the DMG once and the app once.
 
 ### Windows
 
-Download either the `.exe` installer or the `.msi` package from the release page.
+| Download | Install |
+| --- | --- |
+| Use either the `.exe` installer or the `.msi` package from the release page. | 1. Download the Windows asset  2. Run the `.exe` or open the `.msi`  3. Follow setup prompts  4. Launch `Android Toolkit` from Start or the desktop shortcut |
 
-Install flow:
-
-1. Download the Windows release asset
-2. Run the `.exe` installer or open the `.msi`
-3. Follow the setup prompts
-4. Launch `Android Toolkit` from the Start menu or desktop shortcut
-
-If Windows SmartScreen warns on first launch, click `More info`, then `Run anyway`.
+> Windows note: if SmartScreen warns on first launch, click `More info`, then `Run anyway`.
 
 ### Linux
 
-Download the package that best matches your distro:
-
-- Debian / Ubuntu / Linux Mint / Pop!_OS / KDE Neon: `.deb`
-- Fedora / openSUSE: `.rpm`
-- Arch Linux / EndeavourOS / Manjaro: prefer `AppImage` when available
+| Distro Family | Preferred Package |
+| --- | --- |
+| Debian / Ubuntu / Linux Mint / Pop!_OS / KDE Neon | `.deb` |
+| Fedora / openSUSE | `.rpm` |
+| Arch Linux / EndeavourOS / Manjaro | `AppImage` |
 
 Nightly Linux releases use filenames like:
 
@@ -64,9 +62,10 @@ Nightly Linux releases use filenames like:
 - `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage`
 - `Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm`
 
-#### Debian-based distros
+<details>
+<summary><strong>Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon</strong></summary>
 
-Option 1: install from `Downloads`:
+Option 1: install from `Downloads`.
 
 ```bash
 cd ~/Downloads
@@ -74,45 +73,54 @@ sudo apt update
 sudo apt install ./Android-Toolkit_<version>_amd64.deb
 ```
 
-Option 2: type the command, then drag the `.deb` file into Terminal so it pastes the full path:
+Option 2: type the command, then drag the `.deb` file into Terminal so your desktop pastes the exact path.
 
 ```bash
 sudo apt install 
 ```
 
-#### Fedora
+</details>
 
-Option 1: install from `Downloads`:
+<details>
+<summary><strong>Fedora</strong></summary>
+
+Option 1: install from `Downloads`.
 
 ```bash
 cd ~/Downloads
 sudo dnf install ./Android-Toolkit-<version>-1.x86_64.rpm
 ```
 
-Option 2: type the command, then drag the `.rpm` file into Terminal:
+Option 2: type the command, then drag the `.rpm` file into Terminal.
 
 ```bash
 sudo dnf install 
 ```
 
-#### openSUSE
+</details>
 
-Option 1: install from `Downloads`:
+<details>
+<summary><strong>openSUSE</strong></summary>
+
+Option 1: install from `Downloads`.
 
 ```bash
 cd ~/Downloads
 sudo zypper install ./Android-Toolkit-<version>-1.x86_64.rpm
 ```
 
-Option 2: type the command, then drag the `.rpm` file into Terminal:
+Option 2: type the command, then drag the `.rpm` file into Terminal.
 
 ```bash
 sudo zypper install 
 ```
 
-#### Arch Linux / EndeavourOS / Manjaro
+</details>
 
-Option 1: launch it from `Downloads`:
+<details>
+<summary><strong>Arch Linux / EndeavourOS / Manjaro</strong></summary>
+
+Option 1: launch it from `Downloads`.
 
 ```bash
 cd ~/Downloads
@@ -120,7 +128,7 @@ chmod +x Android-Toolkit-*.AppImage
 ./Android-Toolkit-*.AppImage
 ```
 
-Option 2: type each command first, then drag the AppImage into Terminal so it pastes the full path:
+Option 2: type each command first, then drag the AppImage into Terminal so it pastes the full path.
 
 ```bash
 chmod +x 
@@ -133,82 +141,38 @@ If you are on Wayland with NVIDIA and an older nightly aborts before the window 
 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./
 ```
 
-If your desktop menu does not refresh after installing a Linux package, sign out and back in once or restart the desktop shell/session.
+</details>
 
-Linux packages and launchers are bundled under the `Utility` app category so they land in a normal Utilities-style menu section instead of `Lost & Found`.
+> Linux notes:
+> - If your app menu does not refresh after install, sign out and back in once or restart the desktop shell/session.
+> - Linux packages and launchers are bundled under the `Utility` category so they land in a normal Utilities-style menu section instead of `Lost & Found`.
 
-## What Android Toolkit by Team Nocturnal Is Now
+## Toolkit At A Glance
 
-Android Toolkit by Team Nocturnal has moved far beyond the original "APK installer + ADB helper" idea.
-
-The current project is a cross-platform toolkit built with `Tauri 2 + Rust + JavaScript` that gives you:
-
-- a desktop control center for Android devices over `ADB` and `Fastboot`
-- a mobile-first Android build with its own on-device tool flow
-- app installs, package management, backups, file browsing, shell access, and maintenance tools
-- dedicated flows for Android TV / Fire TV / Google TV / Quest / ROM flashing
-- a much cleaner GUI for jobs that normally require a pile of shell commands
-
-## Current Highlights
-
-### Apps
-
-- `Install APK` with queue support and split package handling
-- `Search APKs` across supported sources
-- `App Stores` for alternative Android app stores
-- `Manage Apps` for listing, launching, clearing, uninstalling, and inspecting packages
-
-### Devices
-
-- USB and wireless ADB device detection
-- pairing and connect flows for wireless debugging
-- saved device tools, import/export, and history
-- live hardware info, battery, storage, and transport details
-
-### Media
-
-- TV & Streaming tools for Fire TV, Android TV, Google TV, Shield, ONN, and similar devices
-- media app install flows for tools like Kodi, Stremio, SmartTube, Cloudstream, Syncler, NuvioTV, and more
-- launcher tools, device setup guides, and TV-specific utilities
-
-### Power Tools
-
-- `File Browser` with local/device panes and direct transfers
-- `Backup & Restore` for app backups and no-root data exports
-- `Maintenance` for cleanup, review, diagnostics, and device-care workflows
-- `Tweaks` for display/UI adjustments and Private DNS
-- `Quest Tools` for sideloading and headset-focused workflows
-- `ROM Tools` for flashing and recovery-related tasks
-
-### Pro Tools
-
-- `ADB & Shell`
-- reboot modes
-- quick commands
-- package and permission controls
-- deeper device actions for advanced users
-
-### Android App
-
-- mobile-first navigation and local-device toolkit flow
-- local shell/logcat/device tools
-- maintenance and tweaks flows adapted for Android
-- local APK install through the system package installer
-- Android-specific UX instead of forcing the desktop UI onto a phone
+| Section | Highlights |
+| --- | --- |
+| Apps | `Install APK`, split package support, APK search, app stores, app management |
+| Devices | USB + wireless ADB, pairing, saved devices, battery and storage details |
+| Media | TV and streaming setup, launcher tools, media app installs, device-specific flows |
+| Power Tools | File browser, backups, cleanup, diagnostics, tweaks, ROM tools |
+| Pro Tools | `ADB & Shell`, reboot modes, quick commands, package and permission controls |
+| Android App | Local shell, logcat, installs, maintenance, and Android-specific UX |
 
 ## Tech Stack
 
-- `Tauri 2`
-- `Rust`
-- `JavaScript`
-- `React`
-- `Vite`
-- bundled `adb` and `fastboot` binaries
+| Layer | Stack |
+| --- | --- |
+| App Shell | `Tauri 2` |
+| Frontend | `JavaScript`, `React`, `Vite` |
+| Native Layer | `Rust` |
+| Device Tools | Bundled `adb` and `fastboot` binaries |
 
 ## Project Links
 
 - Official site: [toolkit.team-nocturnal.com](http://toolkit.team-nocturnal.com)
 - Changelog: [CHANGELOG.md](./CHANGELOG.md)
+- Stable download: [releases/latest](https://github.com/TeamNocturnal/AndroidToolkit/releases/latest)
+- Nightly builds: [releases](https://github.com/TeamNocturnal/AndroidToolkit/releases)
 
 ## macOS Setup
 
