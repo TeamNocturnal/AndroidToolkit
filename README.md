@@ -509,47 +509,44 @@ Installed `.deb` packages should create an `Android Toolkit` launcher entry auto
 
 #### Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon
 
+Download the nightly `.deb`, type the install command, then drag the file into Terminal so your desktop pastes the full path:
+
 ```bash
-cd ~/Downloads
-sudo apt update
-sudo apt install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
+sudo apt install 
 ```
 
 #### Fedora
 
-Use the nightly `.rpm`:
+Download the nightly `.rpm`, type the install command, then drag the file into Terminal so Fedora pastes the full path for you:
 
 ```bash
-cd ~/Downloads
-sudo dnf install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm
+sudo dnf install 
 ```
 
 #### openSUSE
 
-Use the nightly `.rpm`:
+Download the nightly `.rpm`, type the install command, then drag the file into Terminal so openSUSE pastes the full path:
 
 ```bash
-cd ~/Downloads
-sudo zypper install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_x86_64.rpm
+sudo zypper install 
 ```
 
 #### Arch Linux / EndeavourOS / Manjaro
 
-Use the nightly `AppImage` directly:
+Download the nightly `AppImage`, make it executable once, then drag it into Terminal to launch it:
 
 ```bash
-cd ~/Downloads
-chmod +x ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
-./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
+chmod +x 
+./
 ```
 
 If you are on Wayland with NVIDIA and an older nightly aborts before the window opens, retry it once with:
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.AppImage
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./
 ```
 
-If you want an app launcher on Arch-based systems, integrate the AppImage with your desktop environment or create a `.desktop` entry that points to the AppImage.
+Tip: type the command first, then drag the downloaded file into Terminal so your desktop fills in the exact path.
 
 ### Notes For Linux
 
@@ -560,6 +557,7 @@ If you want an app launcher on Arch-based systems, integrate the AppImage with y
 - If AppImage bundling fails while `linuxdeploy` runs on Arch or another rolling distro, retry with `APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri build`. That environment variable avoids a common AppImage runtime issue during the packaging step.
 - If a nightly AppImage aborts immediately on Arch, CachyOS, EndeavourOS, or Manjaro under Wayland with NVIDIA, launch it once with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Newer nightlies set that automatically at startup.
 - Installed `.deb` packages should create an `Android Toolkit` launcher entry automatically because the Tauri Debian bundle generates a Desktop file and installs the application icons.
+- Linux packages and launchers are now bundled under the `Utility` app category so they land in a normal Utilities-style menu section instead of `Lost & Found`.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
 ### 1. Clone The Repo

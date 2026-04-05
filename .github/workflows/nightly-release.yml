@@ -54,6 +54,7 @@ jobs:
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
 
             let latestStableTag = null
+            let previousNightlyTag = null
             try {
               const releases = await github.paginate(github.rest.repos.listReleases, {
                 owner,
@@ -62,18 +63,26 @@ jobs:
               })
               const latestStable = releases.find(release => !release.draft && !release.prerelease && /-stable$/i.test(release.tag_name || ''))
               latestStableTag = latestStable?.tag_name || null
+              const priorNightly = releases.find(release =>
+                !release.draft &&
+                release.prerelease &&
+                /^v\d+\.\d+\.\d+-nightly-\d{8}-\d{6}$/i.test(release.tag_name || '') &&
+                release.tag_name !== tag
+              )
+              previousNightlyTag = priorNightly?.tag_name || null
             } catch (error) {
               core.warning(`Unable to look up prior stable release: ${error.message}`)
             }
 
             let commits = []
             let compareUrl = null
-            if (latestStableTag) {
+            let compareBase = previousNightlyTag || latestStableTag
+            if (compareBase) {
               try {
                 const compare = await github.rest.repos.compareCommits({
                   owner,
                   repo,
-                  base: latestStableTag,
+                  base: compareBase,
                   head: context.sha,
                 })
                 compareUrl = compare.data.html_url || null
@@ -102,13 +111,14 @@ jobs:
               `- Commit: \`${shortSha}\``,
               `- Built: ${publishedAt}`,
               latestStableTag ? `- Base stable: \`${latestStableTag}\`` : null,
+              previousNightlyTag ? `- Previous nightly: \`${previousNightlyTag}\`` : null,
               compareUrl ? `- Full changelog: ${compareUrl}` : null,
               '',
-              '### What Changed Since The Last Stable',
+              previousNightlyTag ? '### What Changed Since The Previous Nightly' : '### What Changed Since The Last Stable',
               '',
               ...(commitLines.length > 0
                 ? commitLines
-                : ['- Nightly build published, but commit summaries could not be generated for this run.']),
+                : [`- Nightly build published, but commit summaries could not be generated for this run${compareBase ? '.' : ' because no previous nightly or stable base tag was available.'}`]),
               '',
               '### Install Notes',
               '',
