@@ -1,6 +1,9 @@
 name: Nightly Release
 
 on:
+  push:
+    branches:
+      - nightly
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
