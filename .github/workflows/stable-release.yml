@@ -59,7 +59,7 @@ jobs:
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
 
       - name: Build and publish stable release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

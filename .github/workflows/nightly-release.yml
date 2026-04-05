@@ -185,7 +185,7 @@ jobs:
           printf 'VITE_APP_BUILD_VERSION=%s\n' '${{ needs.create-nightly-release.outputs.build_version }}' > .env.production.local
 
       - name: Build and publish nightly release artifacts
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_APP_BUILD_VERSION: ${{ needs.create-nightly-release.outputs.build_version }}
