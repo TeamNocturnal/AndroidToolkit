@@ -4,6 +4,94 @@ Desktop and Android device toolkit by Team Nocturnal for sideloading, ADB workfl
 
 [Official Site](https://toolkit.team-nocturnal.com) · [Forum Thread](https://forums.wbodytech.com/%E2%9A%A1-nocturnal-toolkit-by-team-nocturnal.t239/) · [Changelog](./CHANGELOG.md) · `macOS` · `Windows` · `Linux` · `Android`
 
+## Install Android Toolkit
+
+Use the GitHub releases page for ready-to-install builds:
+
+- Stable: [github.com/TeamNocturnal/AndroidToolkit/releases/latest](https://github.com/TeamNocturnal/AndroidToolkit/releases/latest)
+- All releases, including nightlies: [github.com/TeamNocturnal/AndroidToolkit/releases](https://github.com/TeamNocturnal/AndroidToolkit/releases)
+
+### macOS
+
+Download the `.dmg` for your Mac:
+
+- Apple Silicon: `aarch64` / `arm64`
+- Intel: `x86_64`
+
+Install flow:
+
+1. Download the release `.dmg`
+2. Open it
+3. Drag `Android Toolkit.app` into `Applications`
+4. Launch the app from `Applications`
+
+Because current macOS builds are ad-hoc signed and not notarized, Gatekeeper may block the app the first time. If that happens:
+
+1. Try to open the blocked `.dmg` or `.app`
+2. Click `Done`
+3. Open `System Settings`
+4. Go to `Privacy & Security`
+5. Scroll to the `Security` section
+6. Click `Open Anyway`
+7. Confirm and launch it again
+
+If you install from the DMG, you may need to repeat that process once for the DMG and once again for the app itself.
+
+### Windows
+
+Download either the `.exe` installer or the `.msi` package from the release page.
+
+Install flow:
+
+1. Download the Windows release asset
+2. Run the `.exe` installer or open the `.msi`
+3. Follow the setup prompts
+4. Launch `Android Toolkit` from the Start menu or desktop shortcut
+
+If Windows SmartScreen warns on first launch, click `More info`, then `Run anyway`.
+
+### Linux
+
+Download the package that best matches your distro:
+
+- Debian / Ubuntu / Linux Mint / Pop!_OS / KDE Neon: `.deb`
+- Fedora / openSUSE: `.rpm`
+- Arch Linux / EndeavourOS / Manjaro: prefer `AppImage` when available
+
+#### Debian-based distros
+
+```bash
+cd ~/Downloads
+sudo apt update
+sudo apt install ./Android-Toolkit_<version>_amd64.deb
+```
+
+#### Fedora
+
+```bash
+cd ~/Downloads
+sudo dnf install ./Android-Toolkit-<version>-1.x86_64.rpm
+```
+
+#### openSUSE
+
+```bash
+cd ~/Downloads
+sudo zypper install ./Android-Toolkit-<version>-1.x86_64.rpm
+```
+
+#### Arch Linux / EndeavourOS / Manjaro
+
+Make the `AppImage` executable, then launch it:
+
+```bash
+cd ~/Downloads
+chmod +x Android-Toolkit-*.AppImage
+./Android-Toolkit-*.AppImage
+```
+
+If your desktop menu does not refresh after installing a Linux package, sign out and back in once or restart the desktop shell/session.
+
 ## What Android Toolkit by Team Nocturnal Is Now
 
 Android Toolkit by Team Nocturnal has moved far beyond the original "APK installer + ADB helper" idea.
@@ -76,18 +164,6 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Jav
 
 - Official site: [toolkit.team-nocturnal.com](http://toolkit.team-nocturnal.com)
 - Changelog: [CHANGELOG.md](./CHANGELOG.md)
-
-## Build From Source
-
-### Before You Start
-
-- Keep this repo in a normal local folder, not inside `OneDrive`, `iCloud Drive`, `Dropbox`, or other live-sync folders.
-- Cloud sync can corrupt Git metadata, duplicate build files, and cause huge storage churn with `target` and Android build output.
-- Use `GitHub` and regular `git pull` / `git push` for sync and history instead of a file-sync service.
-- Good local paths:
-  - macOS: `~/Projects/AndroidToolkit`
-  - Linux: `~/Projects/AndroidToolkit`
-  - Windows: `C:\Projects\AndroidToolkit`
 
 ## macOS Setup
 
@@ -485,21 +561,6 @@ If you want an app launcher on Arch-based systems, integrate the AppImage with y
 - If you want a launcher entry after building locally, run `npm run linux:desktop`. It installs a `~/.local/share/applications/android-toolkit.desktop` entry and the matching icon for the latest built AppImage or release binary.
 - Android builds on Linux still require your `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `NDK_HOME`, and `JAVA_HOME` environment variables to be configured first.
 
-### 1. Clone The Repo
-
-```bash
-git clone https://github.com/TeamNocturnal/AndroidToolkit.git
-cd AndroidToolkit
-git config user.name "XsMagical"
-git config user.email "XsMagical@Team-Nocturnal.com"
-```
-
-### 2. Install JavaScript Dependencies
-
-```bash
-npm install
-```
-
 ## Android Build Notes
 
 Android builds are optional and are separate from the desktop app.
@@ -550,6 +611,96 @@ npm run tauri build
 
 ```bash
 npm run tauri android build
+```
+
+## Cleaning Build Output
+
+### Safe cleanup before rebuilding
+
+If you need a clean rebuild, these folders are safe to remove:
+
+```bash
+rm -rf dist
+rm -rf node_modules
+rm -rf src-tauri/target
+rm -rf src-tauri/gen/android/app/build
+rm -rf src-tauri/gen/android/build
+```
+
+On Windows, remove the same folders manually or with PowerShell.
+
+Do not remove the repo itself, `.git`, or the committed Android project files under `src-tauri/gen/android`.
+
+## Backlog
+
+This backlog is meant to track the next meaningful steps, not every idea that has ever come up.
+
+### Desktop
+
+- Add a proper custom macOS drag-to-Applications installer experience.
+- Set up macOS signing + notarization for trusted DMG distribution.
+- Upgrade the current device preview into a true low-latency live mirroring pipeline.
+
+### Android
+
+- Finish Android window inset handling so the status/nav bars never overlap content on every device.
+- Continue improving Android cleanup and maintenance workflows with more guided review and result summaries.
+- Keep refining Android tablet/landscape layouts where needed.
+
+### Quest Tools
+
+- Add Lightning Launcher support.
+
+### Media / TV
+
+- Add remaining media apps still on the backlog:
+  - `RealStream`
+  - `Stream Cinema`
+  - `iMPlayer`
+  - `TiviMate`
+  - `VidHub`
+  - `SportzX`
+  - `TIDAL`
+  - `Fandango at Home`
+  - `Apple TV`
+- Verify the remaining unidentified screenshot-based media tiles before adding them.
+- Continue polishing Media section grouping and device-specific setup flows.
+
+## Notes
+
+- Desktop and Android intentionally do not behave the same in every area.
+- Android-only changes should stay isolated from the desktop build.
+- Generated build output is intentionally not kept in Git history unless needed.
+
+## Team Nocturnal
+
+Built by `XsMagical` / Team Nocturnal.
+
+## Repo And Build From Source
+
+### Before You Start
+
+- Keep this repo in a normal local folder, not inside `OneDrive`, `iCloud Drive`, `Dropbox`, or other live-sync folders.
+- Cloud sync can corrupt Git metadata, duplicate build files, and cause huge storage churn with `target` and Android build output.
+- Use `GitHub` and regular `git pull` / `git push` for sync and history instead of a file-sync service.
+- Good local paths:
+  - macOS: `~/Projects/AndroidToolkit`
+  - Linux: `~/Projects/AndroidToolkit`
+  - Windows: `C:\Projects\AndroidToolkit`
+
+### 1. Clone The Repo
+
+```bash
+git clone https://github.com/TeamNocturnal/AndroidToolkit.git
+cd AndroidToolkit
+git config user.name "XsMagical"
+git config user.email "XsMagical@Team-Nocturnal.com"
+```
+
+### 2. Install JavaScript Dependencies
+
+```bash
+npm install
 ```
 
 ## Advanced
@@ -635,66 +786,3 @@ git pull --ff-only origin main
 ```
 
 Then run your commit or branch steps again.
-
-## Cleaning Build Output
-
-### Safe cleanup before rebuilding
-
-If you need a clean rebuild, these folders are safe to remove:
-
-```bash
-rm -rf dist
-rm -rf node_modules
-rm -rf src-tauri/target
-rm -rf src-tauri/gen/android/app/build
-rm -rf src-tauri/gen/android/build
-```
-
-On Windows, remove the same folders manually or with PowerShell.
-
-Do not remove the repo itself, `.git`, or the committed Android project files under `src-tauri/gen/android`.
-
-## Backlog
-
-This backlog is meant to track the next meaningful steps, not every idea that has ever come up.
-
-### Desktop
-
-- Add a proper custom macOS drag-to-Applications installer experience.
-- Set up macOS signing + notarization for trusted DMG distribution.
-- Upgrade the current device preview into a true low-latency live mirroring pipeline.
-
-### Android
-
-- Finish Android window inset handling so the status/nav bars never overlap content on every device.
-- Continue improving Android cleanup and maintenance workflows with more guided review and result summaries.
-- Keep refining Android tablet/landscape layouts where needed.
-
-### Quest Tools
-
-- Add Lightning Launcher support.
-
-### Media / TV
-
-- Add remaining media apps still on the backlog:
-  - `RealStream`
-  - `Stream Cinema`
-  - `iMPlayer`
-  - `TiviMate`
-  - `VidHub`
-  - `SportzX`
-  - `TIDAL`
-  - `Fandango at Home`
-  - `Apple TV`
-- Verify the remaining unidentified screenshot-based media tiles before adding them.
-- Continue polishing Media section grouping and device-specific setup flows.
-
-## Notes
-
-- Desktop and Android intentionally do not behave the same in every area.
-- Android-only changes should stay isolated from the desktop build.
-- Generated build output is intentionally not kept in Git history unless needed.
-
-## Team Nocturnal
-
-Built by `XsMagical` / Team Nocturnal.
