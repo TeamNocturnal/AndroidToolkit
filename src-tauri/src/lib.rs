@@ -1048,6 +1048,14 @@ async fn install_from_url(
         return Err("Downloaded file is empty".to_string());
     }
 
+    if data.len() < 4 || &data[..2] != b"PK" {
+        let preview = String::from_utf8_lossy(&data[..data.len().min(120)]).replace('\n', " ");
+        return Err(format!(
+            "Downloaded file does not look like an APK. First bytes: {}",
+            preview
+        ));
+    }
+
     let final_total = content_length
         .map(format_bytes)
         .unwrap_or_else(|| format_bytes(received));
@@ -1100,7 +1108,7 @@ async fn install_from_url(
     }
 
     let output = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(180),
         app.shell()
             .sidecar("adb")
             .map_err(|e| e.to_string())?
@@ -1108,7 +1116,7 @@ async fn install_from_url(
             .output(),
     )
     .await
-    .map_err(|_| "adb install timed out after 60s".to_string())?
+    .map_err(|_| "adb install timed out after 180s".to_string())?
     .map_err(|e| e.to_string())?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -1668,7 +1676,7 @@ async fn capture_screen_frame(
             }));
         }
 
-        use base64::{Engine as _, engine::general_purpose};
+        use base64::{engine::general_purpose, Engine as _};
         let b64 = general_purpose::STANDARD.encode(&output.stdout);
 
         Ok(serde_json::json!({
@@ -1896,7 +1904,13 @@ async fn start_live_stream(
                         let message = if status.code == Some(0) {
                             "Live stream stopped.".to_string()
                         } else {
-                            format!("Live stream ended{}.", status.code.map(|c| format!(" with code {c}")).unwrap_or_default())
+                            format!(
+                                "Live stream ended{}.",
+                                status
+                                    .code
+                                    .map(|c| format!(" with code {c}"))
+                                    .unwrap_or_default()
+                            )
                         };
                         let _ = handle.emit(
                             "live-stream:status",
@@ -2093,8 +2107,29 @@ fn kill_adb_sidecar(app: tauri::AppHandle) {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn configure_linux_webkit_env() {
+    let is_wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || matches!(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            Some("wayland")
+        );
+
+    if is_wayland_session && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // Work around upstream WebKitGTK/Wry rendering failures seen on
+        // Wayland + NVIDIA systems where GBM/EGL initialization aborts.
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        println!("[linux] Set WEBKIT_DISABLE_DMABUF_RENDERER=1 for Wayland session compatibility");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    configure_linux_webkit_env();
+
     let builder = tauri::Builder::default()
         .manage(LogcatProcess(Mutex::new(None)))
         .manage(LiveStreamProcess(Mutex::new(None)))

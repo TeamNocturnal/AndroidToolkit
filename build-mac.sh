@@ -18,9 +18,17 @@ case "$RAW_ARCH" in
   x86_64|amd64) APP_ARCH="x64" ;;
   *) APP_ARCH="$RAW_ARCH" ;;
 esac
+BUILD_FLAVOR="${BUILD_FLAVOR:-stable}"
+NIGHTLY_STAMP="${NIGHTLY_STAMP:-$(date -u +%Y%m%d-%H%M%S)}"
 APP_BUNDLE_DIR="$ROOT_DIR/src-tauri/target/release/bundle/macos"
 APP_PATH="$APP_BUNDLE_DIR/$APP_NAME.app"
-DMG_NAME="${APP_NAME// /-}_${APP_VERSION}_${APP_ARCH}.dmg"
+if [ "$BUILD_FLAVOR" = "nightly" ]; then
+  FILE_VERSION="${APP_VERSION}_nightly-${NIGHTLY_STAMP}"
+else
+  FILE_VERSION="$APP_VERSION"
+fi
+export VITE_APP_BUILD_VERSION="$FILE_VERSION"
+DMG_NAME="${APP_NAME// /-}_${FILE_VERSION}_${APP_ARCH}.dmg"
 DMG_PATH="$ROOT_DIR/$DMG_NAME"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/android-toolkit-dmg.XXXXXX")"
 
@@ -30,7 +38,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-echo "Starting ad-hoc macOS build for $APP_NAME..."
+echo "Starting ad-hoc macOS build for $APP_NAME ($BUILD_FLAVOR)..."
 
 echo "Building the Tauri app bundle..."
 npm run tauri build -- --bundles app

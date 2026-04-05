@@ -10,10 +10,23 @@ import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.2'
+const CURRENT_VERSION = '2.0.3'
+const DISPLAY_VERSION = import.meta.env.VITE_APP_BUILD_VERSION || CURRENT_VERSION
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases?per_page=20'
+const GITHUB_RELEASES_PAGE = 'https://github.com/TeamNocturnal/AndroidToolkit/releases'
+const UPDATE_CHANNEL_STORAGE_KEY = 'nocturnal_update_channel'
+const UPDATE_CHANNELS = [
+  { id: 'stable', label: 'Stable' },
+  { id: 'nightly', label: 'Nightly' },
+]
 
 function normalizeVersionTag(version) {
   return String(version || '').trim().replace(/^v/i, '')
+}
+
+function currentNightlyTag() {
+  const match = String(DISPLAY_VERSION).match(/^(\d+\.\d+\.\d+)_nightly-(\d{8}-\d{6})$/i)
+  return match ? `v${match[1]}-nightly-${match[2]}` : ''
 }
 
 function compareVersions(a, b) {
@@ -25,6 +38,86 @@ function compareVersions(a, b) {
     if (delta !== 0) return delta
   }
   return 0
+}
+
+function extractReleaseVersion(release) {
+  const candidates = [
+    release?.tag_name,
+    release?.name,
+    ...(release?.assets || []).map(asset => asset?.name),
+  ].filter(Boolean)
+
+  for (const value of candidates) {
+    const match = String(value).match(/v?(\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)*)/i)
+    if (match?.[1]) return normalizeVersionTag(match[1])
+  }
+  return ''
+}
+
+function pickReleaseForChannel(releases, channel) {
+  if (!Array.isArray(releases)) return null
+  if (channel === 'nightly') {
+    return releases.find(release => (
+      !release?.draft
+      && (
+        /^nightly-/i.test(release?.tag_name || '')
+        || /nightly/i.test(release?.name || '')
+      )
+    )) || null
+  }
+  return releases.find(release => (
+    !release?.draft
+    && !release?.prerelease
+    && /^\s*v?\d+\.\d+\.\d+/i.test(release?.tag_name || '')
+  )) || null
+}
+
+function isUpdateAvailableForChannel(release, channel) {
+  if (!release) return false
+  const releaseVersion = extractReleaseVersion(release)
+  const versionDelta = compareVersions(releaseVersion || CURRENT_VERSION, CURRENT_VERSION)
+  if (channel === 'nightly') {
+    const installedNightlyTag = currentNightlyTag()
+    if (installedNightlyTag) {
+      return normalizeVersionTag(release?.tag_name) !== normalizeVersionTag(installedNightlyTag)
+    }
+    return versionDelta > 0 || /^\s*v?\d+\.\d+\.\d+-nightly-/i.test(release?.tag_name || '')
+  }
+  return versionDelta > 0
+}
+
+async function fetchUpdateStatus(channel) {
+  const response = await fetch(GITHUB_RELEASES_API, {
+    headers: { Accept: 'application/vnd.github+json' },
+  })
+  if (!response.ok) throw new Error(`GitHub releases request failed: ${response.status}`)
+  const releases = await response.json()
+  const release = pickReleaseForChannel(releases, channel)
+  const version = extractReleaseVersion(release)
+  return {
+    channel,
+    available: isUpdateAvailableForChannel(release, channel),
+    checkedAt: Date.now(),
+    error: '',
+    latestVersion: version,
+    releaseName: release?.name || '',
+    releaseTag: release?.tag_name || '',
+    releaseUrl: release?.html_url || GITHUB_RELEASES_PAGE,
+  }
+}
+
+function formatUpdateStatus(updateState) {
+  if (updateState.status === 'checking') return 'Checking GitHub…'
+  if (updateState.status === 'error') return updateState.error || 'Update check failed'
+  if (!updateState.checkedAt) return 'Checks GitHub releases automatically'
+  if (updateState.available) {
+    return updateState.channel === 'nightly'
+      ? `Nightly available${updateState.releaseTag ? ` · ${updateState.releaseTag}` : ''}`
+      : 'Update available'
+  }
+  return updateState.channel === 'nightly'
+    ? 'Nightly channel is up to date'
+    : 'Stable channel is up to date'
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -272,6 +365,30 @@ function parseSpsConfig(unit) {
   return { codec, width, height }
 }
 
+function buildAvcDecoderConfigDescription(spsUnit, ppsUnit) {
+  const sps = stripStartCode(spsUnit)
+  const pps = stripStartCode(ppsUnit)
+  if (!sps?.length || !pps?.length || sps.length < 4) return null
+
+  const description = new Uint8Array(11 + sps.length + pps.length)
+  let offset = 0
+  description[offset++] = 1
+  description[offset++] = sps[1]
+  description[offset++] = sps[2]
+  description[offset++] = sps[3]
+  description[offset++] = 0xff
+  description[offset++] = 0xe1
+  description[offset++] = (sps.length >> 8) & 0xff
+  description[offset++] = sps.length & 0xff
+  description.set(sps, offset)
+  offset += sps.length
+  description[offset++] = 1
+  description[offset++] = (pps.length >> 8) & 0xff
+  description[offset++] = pps.length & 0xff
+  description.set(pps, offset)
+  return description
+}
+
 function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
   const state = {
     supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
@@ -296,6 +413,7 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
       onFrame?.(frame)
     },
     error: error => {
+      state.configured = false
       onStatus?.(`Decoder error: ${error?.message || error}`)
     },
   })
@@ -304,13 +422,22 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
     if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
     if (!state.configured) {
       const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
-      if (!spsConfig) return
-      state.decoder.configure({
-        codec: spsConfig.codec,
-        optimizeForLatency: true,
-        codedWidth: spsConfig.width,
-        codedHeight: spsConfig.height,
-      })
+      const description = buildAvcDecoderConfigDescription(state.latestSps, state.latestPps)
+      if (!spsConfig || !description) return
+      try {
+        state.decoder.configure({
+          codec: spsConfig.codec,
+          description,
+          optimizeForLatency: true,
+          codedWidth: spsConfig.width,
+          codedHeight: spsConfig.height,
+        })
+      } catch (error) {
+        onStatus?.(`Live stream decoder unavailable; compatibility mode required: ${error?.message || error}`)
+        state.accessUnit = []
+        state.hasVcl = false
+        return
+      }
       state.configured = true
       onStatus?.(`Live stream active • ${new Date().toLocaleTimeString()}`)
     }
@@ -773,8 +900,13 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   const canvasRef = useRef(null)
   const snapshotRef = useRef(null)
   const gestureRef = useRef(null)
+  const compatibilityBusyRef = useRef(false)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
+  const [compatibilityMode, setCompatibilityMode] = useState(false)
+  const [compatibilitySnapshotSrc, setCompatibilitySnapshotSrc] = useState('')
+
+  const activeSnapshotSrc = compatibilitySnapshotSrc || snapshotSrc
 
   function activeSurfaceMetrics() {
     if (hasVideo && canvasRef.current) {
@@ -861,11 +993,19 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   useEffect(() => {
     setHasVideo(false)
     setDecoderStatus('')
+    setCompatibilityMode(false)
+    setCompatibilitySnapshotSrc('')
     if (!serial) return undefined
 
     const decoder = createLiveStreamDecoder({
       serial,
-      onStatus: message => setDecoderStatus(message || ''),
+      onStatus: message => {
+        const nextStatus = message || ''
+        setDecoderStatus(nextStatus)
+        if (/(compatibility mode required|does not support the VideoDecoder API|Decoder rejected frame|Decoder error)/i.test(nextStatus)) {
+          setCompatibilityMode(true)
+        }
+      },
       onFrame: frame => {
         const canvas = canvasRef.current
         if (!canvas) {
@@ -880,6 +1020,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
         ctx?.drawImage(frame, 0, 0, width, height)
         frame.close()
         setHasVideo(true)
+        setCompatibilityMode(false)
       },
     })
 
@@ -903,6 +1044,50 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
     }
   }, [serial])
 
+  useEffect(() => {
+    if (!running || !serial || hasVideo || compatibilityMode) return undefined
+    const timer = window.setTimeout(() => {
+      setCompatibilityMode(true)
+      setDecoderStatus(current => current || 'Live decoder stalled; switching to compatibility capture mode…')
+    }, 2200)
+    return () => window.clearTimeout(timer)
+  }, [running, serial, hasVideo, compatibilityMode])
+
+  useEffect(() => {
+    if (!running || !serial || hasVideo || !compatibilityMode) return undefined
+    let cancelled = false
+    let timerId = null
+
+    const pollFrame = async () => {
+      if (cancelled || compatibilityBusyRef.current) return
+      compatibilityBusyRef.current = true
+      try {
+        const res = await invoke('capture_screen_frame', { serial })
+        if (cancelled) return
+        if (!res?.ok || !res?.b64) {
+          throw new Error(res?.stderr || 'Failed to capture a compatibility frame.')
+        }
+        const normalizedB64 = String(res.b64).trim()
+        const src = normalizedB64.startsWith('data:')
+          ? normalizedB64
+          : `data:image/png;base64,${normalizedB64}`
+        setCompatibilitySnapshotSrc(src)
+        setDecoderStatus('Live stream running in compatibility capture mode.')
+      } catch (error) {
+        if (!cancelled) setDecoderStatus(`Compatibility capture failed: ${error}`)
+      } finally {
+        compatibilityBusyRef.current = false
+        if (!cancelled) timerId = window.setTimeout(pollFrame, 900)
+      }
+    }
+
+    pollFrame()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [running, serial, hasVideo, compatibilityMode])
+
   return (
     <>
       <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
@@ -925,11 +1110,11 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             cursor: interactive && running ? 'crosshair' : 'default',
           }}
         />
-        {!hasVideo && snapshotSrc && (
+        {!hasVideo && activeSnapshotSrc && (
           <img
             ref={snapshotRef}
-            key={snapshotSrc}
-            src={snapshotSrc}
+            key={activeSnapshotSrc}
+            src={activeSnapshotSrc}
             alt="Connected device preview"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -948,7 +1133,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             }}
           />
         )}
-        {!hasVideo && !snapshotSrc && (
+        {!hasVideo && !activeSnapshotSrc && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
             {running ? 'Waiting for first video frame…' : emptyLabel}
           </div>
@@ -1025,6 +1210,15 @@ const DEBLOAT_FILTER_PRESETS = [
   { id: 'amazon', label: 'Amazon', query: 'amazon' },
   { id: 'microsoft', label: 'Microsoft', query: 'microsoft' },
   { id: 'carrier', label: 'Carrier', query: 'verizon' },
+]
+
+const TV_DEBLOAT_FILTER_PRESETS = [
+  { id: 'firetv', label: 'Fire TV', query: 'amazon' },
+  { id: 'googletv', label: 'Google TV', query: 'google.android.tv' },
+  { id: 'channels', label: 'Channels', query: 'channel' },
+  { id: 'recommend', label: 'Recommendations', query: 'recommend' },
+  { id: 'kids', label: 'Kids', query: 'kids' },
+  { id: 'streaming', label: 'Streaming Promos', query: 'netflix' },
 ]
 
 const DEBLOAT_RECOMMENDATION_STYLES = {
@@ -1107,6 +1301,32 @@ function analyzeDebloatPackage(pkg, { thirdParty = false, disabled = false, manu
         safety: 'Commonly removed on Fire devices by power users.',
         impact: 'Can disable promoted content, ads, or Amazon media extras.',
         warning: 'May affect storefront recommendations and some bundled media surfaces.',
+      }
+    }
+  }
+  if (/(google|onn|walmart|nvidia|sony|tcl)/.test(maker) || /(chromecast|google tv|android tv|shield|bravia|onn)/.test(hwModel)) {
+    if (/(tvrecommendations|recommendation|watchnext|kidslauncher|play\.games|google\.android\.videos|google\.android\.music|youtube\.music\.tv|gamesnacks)/.test(lower)) {
+      return {
+        title: debloatTitleFromPackage(pkg),
+        recommendation: 'recommended',
+        category: 'TV content / promo app',
+        reason: 'Looks like an Android TV or Google TV content, kids, media, or recommendation package that is often optional.',
+        description: 'Big-screen content, recommendation, media, or kids-mode package.',
+        safety: 'Usually safe to disable first if you do not use the matching media surface or recommendation rail.',
+        impact: 'Can remove recommendation rows, kids experiences, or bundled media apps.',
+        warning: 'Disable first so you can verify your launcher still behaves the way you want.',
+      }
+    }
+    if (/(leanbacklauncher|tvlauncher|launcherx|tvquicksettings|dreamx|tvframeworkpackagestubs)/.test(lower)) {
+      return {
+        title: debloatTitleFromPackage(pkg),
+        recommendation: 'caution',
+        category: 'TV launcher / shell',
+        reason: 'Looks tied to the Android TV launcher shell, quick settings, or TV framework package.',
+        description: 'Home-screen or platform shell package for Android TV / Google TV.',
+        safety: 'Do not remove unless you already have a tested replacement launcher and recovery path.',
+        impact: 'May break the home screen, recommendations, settings access, or TV-specific navigation.',
+        warning: 'High-risk TV package.',
       }
     }
   }
@@ -1328,6 +1548,102 @@ async function safeConfirmDialog(message, options) {
   }
 }
 
+function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device }) {
+  const model = String(device?.model || '').toLowerCase()
+  const product = String(device?.product || '').toLowerCase()
+  const isFireTv = /fire/.test(model) || /fire/.test(product) || /amazon/.test(model)
+
+  async function runPackageBatch(action, packages, label) {
+    if (!serial || noDevice || running || !packages.length) return
+    const ok = await safeConfirmDialog(`${label} ${packages.length} package(s)?`)
+    if (!ok) return
+    setRunning(true)
+    append(`$ ${label} ${packages.length} package(s)`)
+    try {
+      for (const pkg of packages) {
+        const args = action === 'restore'
+          ? ['-s', serial, 'shell', 'pm', 'enable', '--user', '0', pkg]
+          : ['-s', serial, 'shell', 'pm', 'disable-user', '--user', '0', pkg]
+        const res = await invoke('run_adb', { args })
+        const text = [res.stdout, res.stderr].filter(Boolean).map(s => s.trim()).join('\n').trim() || 'Done.'
+        append(`${pkg}: ${text}`)
+      }
+    } catch (error) {
+      append(`Error: ${error}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const amazonExtras = FIRE_TV_AMAZON_BLOAT.map(item => item.id)
+  const amazonTracking = FIRE_TV_TRACKING.map(item => item.id)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(20,184,166,0.09), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(20,184,166,0.2)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '18px 16px',
+      }}>
+        <div style={{ fontSize: 20, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+          TV Debloat
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Review installed packages with TV-aware recommendations, then disable, restore, or remove user-0 packages in batches. This tab is tuned for Fire TV, Google TV, ONN, Shield, and other Android TV devices.
+        </div>
+      </div>
+
+      {isFireTv && (
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+          <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+            Fire TV Quick Actions
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+            Fast presets for the Amazon extras already tracked elsewhere in the toolkit. These use `disable-user` so they are easier to restore later.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button className="btn-warning" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPackageBatch('disable', amazonExtras, 'Disable Fire TV extras')}>
+              Disable Amazon Extras
+            </button>
+            <button className="btn-warning" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPackageBatch('disable', amazonTracking, 'Disable Fire TV tracking')}>
+              Disable Tracking / Ads
+            </button>
+            <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPackageBatch('restore', amazonExtras, 'Restore Fire TV extras')}>
+              Restore Extras
+            </button>
+            <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} disabled={noDevice || running} onClick={() => runPackageBatch('restore', amazonTracking, 'Restore Fire TV tracking')}>
+              Restore Tracking / Ads
+            </button>
+          </div>
+          <div style={{ padding: '9px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(234,179,8,0.07)', border: '1px solid rgba(234,179,8,0.22)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            Leave launcher and settings packages alone unless you already have a known-good alternate launcher and a recovery path.
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+        <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }}>
+          <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Recommended flow</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            Start with Analyze Packages, use the TV search chips to narrow the list, disable first, then only delete for user 0 after the home screen and playback apps still feel right.
+          </div>
+        </div>
+        <DebloatWorkbench
+          serial={serial}
+          noDevice={noDevice}
+          running={running}
+          setRunning={setRunning}
+          append={append}
+          device={device}
+          filterPresets={TV_DEBLOAT_FILTER_PRESETS}
+          description="TV-aware debloat workbench with safer guidance for launchers, recommendation rails, kids surfaces, and common streaming-device extras."
+        />
+      </div>
+    </div>
+  )
+}
+
 // ── Titlebar ──────────────────────────────────────────────────────────────────
 
 function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
@@ -1366,7 +1682,7 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
           overflow: 'hidden',
           textOverflow: 'ellipsis',
         }}>
-          Android Toolkit 2.0
+          Android Toolkit {DISPLAY_VERSION}
         </span>
       </div>
 
@@ -1411,7 +1727,90 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
 
 // ── Sidebar device card ───────────────────────────────────────────────────────
 
-function SidebarDeviceCard({ device, props, onPairDevice }) {
+function SidebarDeviceCard({ device, props, onPairDevice, currentVersion, updateChannel, onUpdateChannelChange, onUpdateAction, updateState }) {
+  const updateButtonLabel = updateState.status === 'checking'
+    ? 'Checking…'
+    : updateState.available
+      ? 'Update Available'
+      : 'Check for Updates'
+
+  const updateSection = (
+    <div style={{
+      marginTop: 12,
+      paddingTop: 10,
+      borderTop: '1px solid var(--border-subtle)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          fontSize: 10,
+          color: 'var(--text-muted)',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          flex: 1,
+        }}>
+          Updates
+        </span>
+        <select
+          value={updateChannel}
+          onChange={event => onUpdateChannelChange(event.target.value)}
+          style={{
+            width: 84,
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '4px 8px',
+            fontSize: 10,
+            fontWeight: 600,
+            outline: 'none',
+          }}
+        >
+          {UPDATE_CHANNELS.map(option => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+      <button
+        className="btn-ghost"
+        style={{
+          width: '100%',
+          padding: '6px 10px',
+          fontSize: 'var(--text-xs)',
+          color: updateState.available ? 'var(--accent-yellow)' : undefined,
+          borderColor: updateState.available ? 'rgba(245, 158, 11, 0.38)' : undefined,
+          background: updateState.available ? 'rgba(245, 158, 11, 0.08)' : undefined,
+        }}
+        onClick={onUpdateAction}
+        disabled={updateState.status === 'checking'}
+      >
+        {updateButtonLabel}
+      </button>
+      <div style={{
+        fontSize: 10,
+        color: updateState.status === 'error'
+          ? 'var(--accent-red)'
+          : updateState.available
+            ? 'var(--accent-yellow)'
+            : 'var(--text-muted)',
+        textAlign: 'center',
+        lineHeight: 1.35,
+      }}>
+        {formatUpdateStatus(updateState)}
+      </div>
+      <div style={{
+        textAlign: 'center',
+        fontSize: 10,
+        color: 'var(--text-muted)',
+        letterSpacing: '0.04em',
+      }}>
+        v{currentVersion}
+      </div>
+    </div>
+  )
+
   if (!device) {
     return (
       <div className="sidebar-footer">
@@ -1422,6 +1821,7 @@ function SidebarDeviceCard({ device, props, onPairDevice }) {
           onClick={onPairDevice}>
           Pair Device
         </button>
+        {updateSection}
       </div>
     )
   }
@@ -1475,6 +1875,7 @@ function SidebarDeviceCard({ device, props, onPairDevice }) {
           <Bar pct={storage.used_pct} color={storageColor} />
         </div>
       )}
+      {updateSection}
     </div>
   )
 }
@@ -2148,12 +2549,23 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
   async function tvResolveFireAppApk(id) {
     if (id === 'smarttube-stable') {
+      const abi = await tvGetDeviceAbi()
+      const ABI_PATTERNS = {
+        'arm64-v8a': /SmartTube_(?:stable|beta)_.*arm64-v8a\.apk$/i,
+        'armeabi-v7a': /SmartTube_(?:stable|beta)_.*armeabi-v7a\.apk$/i,
+        'x86_64': /SmartTube_(?:stable|beta)_.*x86_64?\.apk$/i,
+        'x86': /SmartTube_(?:stable|beta)_.*x86\.apk$/i,
+      }
       const r = await fetch('https://api.github.com/repos/yuliskov/SmartTube/releases')
       const releases = await r.json()
       const rel = releases.find(x => x.tag_name?.endsWith('s') || x.name?.toLowerCase().includes('stable'))
-      if (!rel) throw new Error('No stable SmartTube release found')
-      const asset = rel.assets?.find(a => /SmartTube_stable_.*arm64-v8a\.apk$/i.test(a.name))
-                 || rel.assets?.find(a => /SmartTube_stable_.*universal\.apk$/i.test(a.name))
+               || releases.find(x => /beta/i.test(x.name || '') || /beta/i.test(x.tag_name || ''))
+               || releases[0]
+      if (!rel) throw new Error('No SmartTube release found')
+      const asset = rel.assets?.find(a => ABI_PATTERNS[abi]?.test(a.name))
+                 || rel.assets?.find(a => /SmartTube_(?:stable|beta)_.*universal\.apk$/i.test(a.name))
+                 || rel.assets?.find(a => /SmartTube_(?:stable|beta)_.*arm64-v8a\.apk$/i.test(a.name))
+                 || rel.assets?.find(a => a.name.endsWith('.apk'))
       if (!asset) throw new Error('No SmartTube stable APK found')
       return { url: asset.browser_download_url, filename: asset.name }
     }
@@ -2272,7 +2684,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       return { url: asset.browser_download_url, filename: asset.name }
     }
     if (id === 'weyd') {
-      return { url: 'https://weyd.app/d', filename: 'weyd.apk' }
+      return { externalUrl: 'https://weyd.app/', filename: 'weyd.apk' }
     }
     if (id === 'lumera') {
       const r = await fetch('https://api.github.com/repos/LumeraD3v/Lumera/releases/latest')
@@ -2285,12 +2697,18 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       return { url: 'https://syncler.net/d', filename: 'Syncler.apk' }
     }
     if (id === 'vlc') {
-      const r = await fetch('https://api.github.com/repos/videolan/vlc-android/releases')
-      const releases = await r.json()
-      const rel = releases.find(x => !x.prerelease)
-      const asset = rel?.assets?.find(a => /arm64/i.test(a.name) && a.name.endsWith('.apk') && !a.name.endsWith('.aab'))
-      if (asset) return { url: asset.browser_download_url, filename: asset.name }
-      return { url: 'https://get.videolan.org/vlc-android/3.7.0/VLC-Android-3.7.0-arm64-v8a.apk', filename: 'VLC-Android-3.7.0-arm64-v8a.apk' }
+      const abi = await tvGetDeviceAbi()
+      const ABI_FILENAMES = {
+        'arm64-v8a': 'VLC-Android-3.7.0-arm64-v8a.apk',
+        'armeabi-v7a': 'VLC-Android-3.7.0-armeabi-v7a.apk',
+        'x86_64': 'VLC-Android-3.7.0-x86_64.apk',
+        'x86': 'VLC-Android-3.7.0-x86.apk',
+      }
+      const filename = ABI_FILENAMES[abi] || ABI_FILENAMES['arm64-v8a']
+      return {
+        url: `https://download.videolan.org/pub/videolan/vlc-android/3.7.0/${filename}`,
+        filename,
+      }
     }
     throw new Error(`No resolver for media app: ${id}`)
   }
@@ -2310,11 +2728,15 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       }
     })
     try {
-      await invoke('install_apk_from_url', { serial, url, filename })
-      setTvMediaInstalling(s => ({ ...s, [id]: 'done' }))
+      const res = await invoke('install_from_url', { serial, url, filename })
+      setTvMediaInstalling(s => ({ ...s, [id]: res?.ok ? 'done' : 'error' }))
       setTvMediaProgress(s => { const n = { ...s }; delete n[id]; return n })
-      setTvMediaInstalled(s => ({ ...s, [id]: true }))
-      tvAppend(`✓ ${filename} installed\n`)
+      if (res?.ok) {
+        setTvMediaInstalled(s => ({ ...s, [id]: true }))
+        tvAppend(`✓ ${filename} installed\n`)
+      } else {
+        tvAppend(`✗ Failed: ${(res?.stderr || res?.stdout || 'Install failed').trim()}\n`)
+      }
     } catch (e) {
       setTvMediaInstalling(s => ({ ...s, [id]: 'error' }))
       setTvMediaProgress(s => { const n = { ...s }; delete n[id]; return n })
@@ -3727,6 +4149,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
               {[
                 { id: 'tools', label: 'Tools' },
+                { id: 'debloat', label: 'Debloat' },
                 { id: 'streaming', label: 'Streaming' },
                 { id: 'launchers', label: 'Launchers' },
                 { id: 'others', label: 'Others' },
@@ -3929,6 +4352,17 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                 </div>
               </div>
             </QuestCard>
+            )}
+
+            {tvTab === 'debloat' && (
+              <TvDebloatPanel
+                serial={serial}
+                noDevice={noDevice}
+                running={tvRunning}
+                setRunning={setTvRunning}
+                append={tvAppend}
+                device={device}
+              />
             )}
 
             {/* ── 2. Fire TV / Fire Stick Tools ── */}
@@ -4787,9 +5221,10 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                         name: 'Weyd',
                         compat: '🏷 Android TV · Google TV',
                         pkg: 'app.weyd.player',
-                        desc: 'Premium streaming app with a refined TV UI and direct APK download from the official Weyd site.',
+                        desc: 'Premium streaming app with a refined TV UI. The official site serves the download flow, so the toolkit opens Weyd in your browser instead of trying to ingest the landing page as an APK.',
                         source: 'Weyd — official weyd.app',
                         resolve: () => tvResolveMediaApk('weyd'),
+                        externalInstall: true,
                       },
                       {
                         id: 'lumera',
@@ -4861,6 +5296,14 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                                   disabled={!serial || inProgress}
                                   onClick={async () => {
                                     if (!serial) return
+                                    if (app.externalInstall) {
+                                      const resolved = await app.resolve()
+                                      if (resolved?.externalUrl) {
+                                        await openUrl(resolved.externalUrl)
+                                        tvAppend(`Opened ${app.name} download page: ${resolved.externalUrl}\n`)
+                                      }
+                                      return
+                                    }
                                     setTvMediaInstalling(s => ({ ...s, [app.id]: 'resolving' }))
                                     try {
                                       const { url, filename } = await app.resolve()
@@ -4870,7 +5313,8 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                                       tvAppend(`Error resolving ${app.name}: ${e}\n`)
                                     }
                                   }}>
-                                  {instState === 'resolving'    ? 'Resolving…'
+                                  {app.externalInstall         ? 'Open Site ↗'
+                                    : instState === 'resolving'    ? 'Resolving…'
                                     : instState === 'downloading' ? `↓ ${prog?.percent ?? 0}%`
                                     : instState === 'installing'  ? 'Installing…'
                                     : instState === 'error'       ? '✗ Retry'
@@ -6084,7 +6528,7 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
               ['App',      'Android Toolkit by Team Nocturnal'],
-              ['Version',  'v2.0.2'],
+              ['Version',  `v${DISPLAY_VERSION}`],
               ['Built by', 'XsMagical — Team Nocturnal'],
               ['Stack',    'Tauri 2 + React + Vite + Rust'],
             ].map(([k, v]) => (
@@ -9984,7 +10428,17 @@ const ADV_QUICK_CMDS = [
   { icon: '🚫', label: 'Disable WiFi',   cat: 'net',    args: s => ['-s', s, 'shell', 'svc', 'wifi', 'disable'] },
 ]
 
-function DebloatWorkbench({ serial, noDevice, running, setRunning, append, deviceProps, device }) {
+function DebloatWorkbench({
+  serial,
+  noDevice,
+  running,
+  setRunning,
+  append,
+  deviceProps,
+  device,
+  filterPresets = DEBLOAT_FILTER_PRESETS,
+  description = 'Manufacturer-aware debloat GUI with analysis, selection, and batch actions. Safe guidance adjusts for the connected device when possible.',
+}) {
   const [pkgSearch, setPkgSearch] = useState('')
   const [packages, setPackages] = useState([])
   const [pkgLoading, setPkgLoading] = useState(false)
@@ -10088,13 +10542,13 @@ function DebloatWorkbench({ serial, noDevice, running, setRunning, append, devic
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>
-        Manufacturer-aware debloat GUI with analysis, selection, and batch actions. Safe guidance adjusts for the connected device when possible.
+        {description}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn-primary" style={{ fontSize: 11, padding: '4px 10px' }} disabled={noDevice || pkgLoading} onClick={loadPackages}>
           {pkgLoading ? 'Analyzing…' : packages.length ? '↺ Analyze Again' : 'Analyze Packages'}
         </button>
-        {DEBLOAT_FILTER_PRESETS.map(preset => (
+        {filterPresets.map(preset => (
           <button key={preset.id} className="btn-ghost" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => setPkgSearch(preset.query)}>
             {preset.label}
           </button>
@@ -12087,37 +12541,69 @@ function MainApp() {
   const [orientation, setOrientation] = useState('portrait')
   const androidHistoryRef = useRef({ ready: false, syncingPop: false, key: '' })
   const [showUpdateBanner, setShowUpdateBanner] = useState(false)
-  const [latestVersion, setLatestVersion] = useState('')
+  const [updateChannel, setUpdateChannel] = useState(() => localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY) || 'stable')
+  const [updateState, setUpdateState] = useState({
+    status: 'idle',
+    channel: localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY) || 'stable',
+    available: false,
+    checkedAt: 0,
+    error: '',
+    latestVersion: '',
+    releaseName: '',
+    releaseTag: '',
+    releaseUrl: GITHUB_RELEASES_PAGE,
+  })
 
   function dismissUpdateBanner() {
-    sessionStorage.setItem('updateBannerDismissed', 'dismissed')
+    if (updateState.releaseTag) sessionStorage.setItem('updateBannerDismissed', updateState.releaseTag)
     setShowUpdateBanner(false)
   }
 
-  useEffect(() => {
-    if (sessionStorage.getItem('updateBannerDismissed')) return
-    let cancelled = false
-    fetch('https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases/latest')
-      .then(async response => {
-        if (!response.ok) throw new Error(`GitHub releases request failed: ${response.status}`)
-        return response.json()
+  const refreshUpdateStatus = useCallback(async () => {
+    setUpdateState(prev => ({
+      ...prev,
+      status: 'checking',
+      channel: updateChannel,
+      error: '',
+    }))
+    try {
+      const next = await fetchUpdateStatus(updateChannel)
+      setUpdateState({
+        ...next,
+        status: 'ready',
       })
-      .then(data => {
-        if (cancelled) return
-        const latest = normalizeVersionTag(data?.tag_name)
-        if (!latest) return
-        if (compareVersions(latest, CURRENT_VERSION) > 0) {
-          setLatestVersion(latest)
-          setShowUpdateBanner(true)
-        }
-      })
-      .catch(() => {
-        // Ignore release lookup failures and keep the banner hidden.
-      })
-    return () => {
-      cancelled = true
+    } catch (error) {
+      setUpdateState(prev => ({
+        ...prev,
+        status: 'error',
+        channel: updateChannel,
+        checkedAt: Date.now(),
+        available: false,
+        error: error?.message || 'Unable to reach GitHub releases',
+      }))
     }
-  }, [])
+  }, [updateChannel])
+
+  useEffect(() => {
+    localStorage.setItem(UPDATE_CHANNEL_STORAGE_KEY, updateChannel)
+  }, [updateChannel])
+
+  useEffect(() => {
+    refreshUpdateStatus()
+    const timer = window.setInterval(() => {
+      refreshUpdateStatus()
+    }, 60 * 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [refreshUpdateStatus])
+
+  useEffect(() => {
+    if (!updateState.available || !updateState.releaseTag) {
+      setShowUpdateBanner(false)
+      return
+    }
+    const dismissedTag = sessionStorage.getItem('updateBannerDismissed')
+    setShowUpdateBanner(dismissedTag !== updateState.releaseTag)
+  }, [updateState.available, updateState.releaseTag])
 
   useEffect(() => {
     const saved = localStorage.getItem('nocturnal_saved_devices')
@@ -12371,10 +12857,12 @@ function MainApp() {
           fontSize: 12,
         }}>
           <span style={{ flex: 1, color: 'var(--text-primary)' }}>
-            A new version of Android Toolkit is available — v{latestVersion}
+            {updateState.channel === 'nightly'
+              ? `A nightly build of Android Toolkit is available${updateState.releaseTag ? ` — ${updateState.releaseTag}` : ''}`
+              : `A new version of Android Toolkit is available — v${updateState.latestVersion}`}
           </span>
           <button
-            onClick={() => openUrl('https://team-nocturnal.com')}
+            onClick={() => openUrl(updateState.releaseUrl || GITHUB_RELEASES_PAGE)}
             style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 600 }}
           >
             Download
@@ -12426,16 +12914,22 @@ function MainApp() {
                 </div>
               ))}
             </div>
-            <SidebarDeviceCard device={selected} props={props} onPairDevice={() => { setActivePanel('devices'); setPairSectionOpen(true) }} />
-            <div style={{
-              padding: '5px 12px 8px',
-              textAlign: 'center',
-              fontSize: 10,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.04em',
-            }}>
-              v2.0.2
-            </div>
+            <SidebarDeviceCard
+              device={selected}
+              props={props}
+              onPairDevice={() => { setActivePanel('devices'); setPairSectionOpen(true) }}
+              currentVersion={DISPLAY_VERSION}
+              updateChannel={updateChannel}
+              onUpdateChannelChange={setUpdateChannel}
+              onUpdateAction={() => {
+                if (updateState.available && updateState.releaseUrl) {
+                  openUrl(updateState.releaseUrl)
+                  return
+                }
+                refreshUpdateStatus()
+              }}
+              updateState={updateState}
+            />
           </div>
         )}
 
