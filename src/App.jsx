@@ -24,6 +24,11 @@ function normalizeVersionTag(version) {
   return String(version || '').trim().replace(/^v/i, '')
 }
 
+function currentNightlyTag() {
+  const match = String(DISPLAY_VERSION).match(/^(\d+\.\d+\.\d+)_nightly-(\d{8}-\d{6})$/i)
+  return match ? `v${match[1]}-nightly-${match[2]}` : ''
+}
+
 function compareVersions(a, b) {
   const left = normalizeVersionTag(a).split('.').map(part => parseInt(part, 10) || 0)
   const right = normalizeVersionTag(b).split('.').map(part => parseInt(part, 10) || 0)
@@ -72,7 +77,11 @@ function isUpdateAvailableForChannel(release, channel) {
   const releaseVersion = extractReleaseVersion(release)
   const versionDelta = compareVersions(releaseVersion || CURRENT_VERSION, CURRENT_VERSION)
   if (channel === 'nightly') {
-    return versionDelta > 0 || (versionDelta === 0 && /^nightly-/i.test(release?.tag_name || ''))
+    const installedNightlyTag = currentNightlyTag()
+    if (installedNightlyTag) {
+      return normalizeVersionTag(release?.tag_name) !== normalizeVersionTag(installedNightlyTag)
+    }
+    return versionDelta > 0 || /^\s*v?\d+\.\d+\.\d+-nightly-/i.test(release?.tag_name || '')
   }
   return versionDelta > 0
 }

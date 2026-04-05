@@ -1,0 +1,193 @@
+name: Nightly Release
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  create-nightly-release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      app_version: ${{ steps.meta.outputs.app_version }}
+      nightly_stamp: ${{ steps.meta.outputs.nightly_stamp }}
+      nightly_tag: ${{ steps.meta.outputs.nightly_tag }}
+      build_version: ${{ steps.meta.outputs.build_version }}
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute nightly release metadata
+        id: meta
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p "require('./package.json').version")"
+          NIGHTLY_STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          NIGHTLY_TAG="v${APP_VERSION}-nightly-${NIGHTLY_STAMP}"
+          BUILD_VERSION="${APP_VERSION}_nightly-${NIGHTLY_STAMP}"
+
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "nightly_stamp=$NIGHTLY_STAMP" >> "$GITHUB_OUTPUT"
+          echo "nightly_tag=$NIGHTLY_TAG" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create nightly release with generated notes
+        id: release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const tag = '${{ steps.meta.outputs.nightly_tag }}'
+            const version = '${{ steps.meta.outputs.app_version }}'
+            const stamp = '${{ steps.meta.outputs.nightly_stamp }}'
+            const shortSha = context.sha.slice(0, 7)
+            const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
+
+            let latestStableTag = null
+            try {
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              })
+              const latestStable = releases.find(release => !release.draft && !release.prerelease && /-stable$/i.test(release.tag_name || ''))
+              latestStableTag = latestStable?.tag_name || null
+            } catch (error) {
+              core.warning(`Unable to look up prior stable release: ${error.message}`)
+            }
+
+            let commits = []
+            let compareUrl = null
+            if (latestStableTag) {
+              try {
+                const compare = await github.rest.repos.compareCommits({
+                  owner,
+                  repo,
+                  base: latestStableTag,
+                  head: context.sha,
+                })
+                compareUrl = compare.data.html_url || null
+                commits = (compare.data.commits || []).slice(-12)
+              } catch (error) {
+                core.warning(`Unable to compare commits for nightly notes: ${error.message}`)
+              }
+            }
+
+            const commitLines = commits
+              .map(commit => {
+                const summary = (commit.commit?.message || '').split('\n')[0].trim()
+                return summary ? `- ${summary} (${commit.sha.slice(0, 7)})` : null
+              })
+              .filter(Boolean)
+
+            const body = [
+              `## Android Toolkit v${version} nightly-${stamp}`,
+              '',
+              'Custom nightly build created automatically from GitHub Actions.',
+              '',
+              '### Build Info',
+              '',
+              `- Tag: \`${tag}\``,
+              '- Channel: `nightly`',
+              `- Commit: \`${shortSha}\``,
+              `- Built: ${publishedAt}`,
+              latestStableTag ? `- Base stable: \`${latestStableTag}\`` : null,
+              compareUrl ? `- Full changelog: ${compareUrl}` : null,
+              '',
+              '### What Changed Since The Last Stable',
+              '',
+              ...(commitLines.length > 0
+                ? commitLines
+                : ['- Nightly build published, but commit summaries could not be generated for this run.']),
+              '',
+              '### Install Notes',
+              '',
+              '- macOS: open the `.dmg` and drag `Android Toolkit.app` into `Applications`.',
+              '- Windows: use the `.exe` installer or `.msi` package.',
+              '- Linux: install the native package for your distro when available. Debian-based systems can install the `.deb` with `sudo apt install ./Android-Toolkit_<version>_amd64.deb`.',
+              '',
+              '### Download Links',
+              '',
+              `- Stable releases: https://github.com/${owner}/${repo}/releases/latest`,
+              `- All releases: https://github.com/${owner}/${repo}/releases`,
+            ].filter(Boolean).join('\n')
+
+            const release = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: `v${version} nightly-${stamp}`,
+              body,
+              draft: false,
+              prerelease: true,
+            })
+
+            core.setOutput('release_id', String(release.data.id))
+
+  publish-tauri:
+    needs: create-nightly-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Write nightly frontend build version
+        shell: bash
+        run: |
+          printf 'VITE_APP_BUILD_VERSION=%s\n' '${{ needs.create-nightly-release.outputs.build_version }}' > .env.production.local
+
+      - name: Build and publish nightly release artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_APP_BUILD_VERSION: ${{ needs.create-nightly-release.outputs.build_version }}
+        with:
+          releaseId: ${{ needs.create-nightly-release.outputs.release_id }}
+          tagName: ${{ needs.create-nightly-release.outputs.nightly_tag }}
+          releaseAssetNamePattern: 'Android-Toolkit_${{ needs.create-nightly-release.outputs.build_version }}_[arch][_setup][ext]'
+          args: ${{ matrix.args }}
