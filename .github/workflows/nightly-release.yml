@@ -11,6 +11,8 @@ on:
 jobs:
   create-nightly-release:
     runs-on: ubuntu-22.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     permissions:
       contents: write
     outputs:
@@ -143,14 +145,14 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ''
           - platform: windows-latest
             args: ''
 
     runs-on: ${{ matrix.platform }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout
@@ -192,5 +194,5 @@ jobs:
         with:
           releaseId: ${{ needs.create-nightly-release.outputs.release_id }}
           tagName: ${{ needs.create-nightly-release.outputs.nightly_tag }}
-          releaseAssetNamePattern: 'Android-Toolkit_${{ needs.create-nightly-release.outputs.build_version }}_[arch][_setup][ext]'
+          assetNamePattern: 'Android-Toolkit_${{ needs.create-nightly-release.outputs.build_version }}_[arch][_setup][ext]'
           args: ${{ matrix.args }}
