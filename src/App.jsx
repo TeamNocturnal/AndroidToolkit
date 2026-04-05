@@ -40,6 +40,11 @@ function compareVersions(a, b) {
   return 0
 }
 
+function extractBaseVersion(value) {
+  const match = String(value || '').match(/(\d+\.\d+\.\d+)/)
+  return match?.[1] || ''
+}
+
 function extractReleaseVersion(release) {
   const candidates = [
     release?.tag_name,
@@ -81,7 +86,8 @@ function isUpdateAvailableForChannel(release, channel) {
     if (installedNightlyTag) {
       return normalizeVersionTag(release?.tag_name) !== normalizeVersionTag(installedNightlyTag)
     }
-    return versionDelta > 0 || /^\s*v?\d+\.\d+\.\d+-nightly-/i.test(release?.tag_name || '')
+    const releaseBaseVersion = extractBaseVersion(releaseVersion || release?.tag_name || release?.name || '')
+    return compareVersions(releaseBaseVersion || CURRENT_VERSION, CURRENT_VERSION) > 0
   }
   return versionDelta > 0
 }
