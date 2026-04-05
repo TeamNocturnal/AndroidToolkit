@@ -14,14 +14,6 @@
 
 > Android Toolkit started as a simpler install-and-ADB helper, but it has grown into a full desktop and Android management suite for phones, tablets, TVs, Quest headsets, sideloading, backups, wireless debugging, maintenance, and recovery work.
 
-<p align="center">
-  <img src="./docs/assets/readme-hero.png" alt="Android Toolkit hero art" width="860" />
-</p>
-
-<p align="center">
-  <img src="./docs/assets/toolkit-icon.png" alt="Android Toolkit icon" width="92" />
-</p>
-
 ## Visual Snapshot
 
 <p align="center">
@@ -57,10 +49,6 @@
 | Android App | Mobile-first toolkit flow with local shell, logcat, install, and maintenance tools |
 
 ## Experience
-
-<p align="center">
-  <img src="./docs/assets/toolkit-icon.png" alt="Android Toolkit icon" width="84" />
-</p>
 
 | Look | Workflow | Audience |
 | --- | --- | --- |
