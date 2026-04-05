@@ -5648,6 +5648,19 @@ const SECURITY_APPS = [
     desc: 'Multi-hop routing, transparent infrastructure, and a security-forward service design.',
     tags: ['Multi-hop', 'Audited', 'Official Site'],
   },
+  {
+    id: 'mozilla-vpn',
+    category: 'vpn',
+    source: 'play',
+    name: 'Mozilla VPN',
+    icon: '🦊',
+    badge: 'trusted',
+    tagline: 'Privacy-focused VPN from Mozilla',
+    pkg: 'org.mozilla.firefox.vpn',
+    playQuery: 'Mozilla VPN',
+    desc: 'Mozilla-backed VPN with no-logs positioning, multi-hop support, and a simple privacy-first experience.',
+    tags: ['Mozilla', 'Privacy', 'Multi-hop'],
+  },
 ]
 
 function SecurityAppCard({ app, serial, noDevice, platform, status, onStatusChange, addToast }) {
