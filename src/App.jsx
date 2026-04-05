@@ -272,6 +272,30 @@ function parseSpsConfig(unit) {
   return { codec, width, height }
 }
 
+function buildAvcDecoderConfigDescription(spsUnit, ppsUnit) {
+  const sps = stripStartCode(spsUnit)
+  const pps = stripStartCode(ppsUnit)
+  if (!sps?.length || !pps?.length || sps.length < 4) return null
+
+  const description = new Uint8Array(11 + sps.length + pps.length)
+  let offset = 0
+  description[offset++] = 1
+  description[offset++] = sps[1]
+  description[offset++] = sps[2]
+  description[offset++] = sps[3]
+  description[offset++] = 0xff
+  description[offset++] = 0xe1
+  description[offset++] = (sps.length >> 8) & 0xff
+  description[offset++] = sps.length & 0xff
+  description.set(sps, offset)
+  offset += sps.length
+  description[offset++] = 1
+  description[offset++] = (pps.length >> 8) & 0xff
+  description[offset++] = pps.length & 0xff
+  description.set(pps, offset)
+  return description
+}
+
 function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
   const state = {
     supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
@@ -296,6 +320,7 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
       onFrame?.(frame)
     },
     error: error => {
+      state.configured = false
       onStatus?.(`Decoder error: ${error?.message || error}`)
     },
   })
@@ -304,13 +329,22 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
     if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
     if (!state.configured) {
       const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
-      if (!spsConfig) return
-      state.decoder.configure({
-        codec: spsConfig.codec,
-        optimizeForLatency: true,
-        codedWidth: spsConfig.width,
-        codedHeight: spsConfig.height,
-      })
+      const description = buildAvcDecoderConfigDescription(state.latestSps, state.latestPps)
+      if (!spsConfig || !description) return
+      try {
+        state.decoder.configure({
+          codec: spsConfig.codec,
+          description,
+          optimizeForLatency: true,
+          codedWidth: spsConfig.width,
+          codedHeight: spsConfig.height,
+        })
+      } catch (error) {
+        onStatus?.(`Live stream decoder unavailable; compatibility mode required: ${error?.message || error}`)
+        state.accessUnit = []
+        state.hasVcl = false
+        return
+      }
       state.configured = true
       onStatus?.(`Live stream active • ${new Date().toLocaleTimeString()}`)
     }
@@ -773,8 +807,13 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   const canvasRef = useRef(null)
   const snapshotRef = useRef(null)
   const gestureRef = useRef(null)
+  const compatibilityBusyRef = useRef(false)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
+  const [compatibilityMode, setCompatibilityMode] = useState(false)
+  const [compatibilitySnapshotSrc, setCompatibilitySnapshotSrc] = useState('')
+
+  const activeSnapshotSrc = compatibilitySnapshotSrc || snapshotSrc
 
   function activeSurfaceMetrics() {
     if (hasVideo && canvasRef.current) {
@@ -861,11 +900,19 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   useEffect(() => {
     setHasVideo(false)
     setDecoderStatus('')
+    setCompatibilityMode(false)
+    setCompatibilitySnapshotSrc('')
     if (!serial) return undefined
 
     const decoder = createLiveStreamDecoder({
       serial,
-      onStatus: message => setDecoderStatus(message || ''),
+      onStatus: message => {
+        const nextStatus = message || ''
+        setDecoderStatus(nextStatus)
+        if (/(compatibility mode required|does not support the VideoDecoder API|Decoder rejected frame|Decoder error)/i.test(nextStatus)) {
+          setCompatibilityMode(true)
+        }
+      },
       onFrame: frame => {
         const canvas = canvasRef.current
         if (!canvas) {
@@ -880,6 +927,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
         ctx?.drawImage(frame, 0, 0, width, height)
         frame.close()
         setHasVideo(true)
+        setCompatibilityMode(false)
       },
     })
 
@@ -903,6 +951,50 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
     }
   }, [serial])
 
+  useEffect(() => {
+    if (!running || !serial || hasVideo || compatibilityMode) return undefined
+    const timer = window.setTimeout(() => {
+      setCompatibilityMode(true)
+      setDecoderStatus(current => current || 'Live decoder stalled; switching to compatibility capture mode…')
+    }, 2200)
+    return () => window.clearTimeout(timer)
+  }, [running, serial, hasVideo, compatibilityMode])
+
+  useEffect(() => {
+    if (!running || !serial || hasVideo || !compatibilityMode) return undefined
+    let cancelled = false
+    let timerId = null
+
+    const pollFrame = async () => {
+      if (cancelled || compatibilityBusyRef.current) return
+      compatibilityBusyRef.current = true
+      try {
+        const res = await invoke('capture_screen_frame', { serial })
+        if (cancelled) return
+        if (!res?.ok || !res?.b64) {
+          throw new Error(res?.stderr || 'Failed to capture a compatibility frame.')
+        }
+        const normalizedB64 = String(res.b64).trim()
+        const src = normalizedB64.startsWith('data:')
+          ? normalizedB64
+          : `data:image/png;base64,${normalizedB64}`
+        setCompatibilitySnapshotSrc(src)
+        setDecoderStatus('Live stream running in compatibility capture mode.')
+      } catch (error) {
+        if (!cancelled) setDecoderStatus(`Compatibility capture failed: ${error}`)
+      } finally {
+        compatibilityBusyRef.current = false
+        if (!cancelled) timerId = window.setTimeout(pollFrame, 900)
+      }
+    }
+
+    pollFrame()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [running, serial, hasVideo, compatibilityMode])
+
   return (
     <>
       <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
@@ -925,11 +1017,11 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             cursor: interactive && running ? 'crosshair' : 'default',
           }}
         />
-        {!hasVideo && snapshotSrc && (
+        {!hasVideo && activeSnapshotSrc && (
           <img
             ref={snapshotRef}
-            key={snapshotSrc}
-            src={snapshotSrc}
+            key={activeSnapshotSrc}
+            src={activeSnapshotSrc}
             alt="Connected device preview"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -948,7 +1040,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             }}
           />
         )}
-        {!hasVideo && !snapshotSrc && (
+        {!hasVideo && !activeSnapshotSrc && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
             {running ? 'Waiting for first video frame…' : emptyLabel}
           </div>

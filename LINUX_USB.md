@@ -21,6 +21,8 @@ Install the Android udev rules package:
 ```bash
 sudo apt update
 sudo apt install android-sdk-platform-tools-common
+adb version
+adb start-server
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
@@ -38,6 +40,8 @@ Recommended approach:
 3. Reload rules and reconnect the device:
 
 ```bash
+adb version
+adb start-server
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
@@ -52,6 +56,8 @@ Install the Android udev rules package:
 
 ```bash
 sudo pacman -S --needed android-udev
+adb version
+adb start-server
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
@@ -64,6 +70,8 @@ Install the Android udev rules package if it is available for your openSUSE rele
 
 ```bash
 sudo zypper install android-udev-rules
+adb version
+adb start-server
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
@@ -83,6 +91,8 @@ adb devices
 ```
 
 You should see a device serial listed instead of an empty result.
+
+If you see `unauthorized`, unlock the phone and accept the USB debugging prompt, then run `adb devices` again.
 
 ## Verify Fastboot
 
