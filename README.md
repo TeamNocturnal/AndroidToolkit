@@ -77,6 +77,94 @@ The current project is a cross-platform toolkit built with `Tauri 2 + Rust + Jav
 - Official site: [toolkit.team-nocturnal.com](http://toolkit.team-nocturnal.com)
 - Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
+## Install Android Toolkit
+
+Use the GitHub releases page for ready-to-install builds:
+
+- Stable: [github.com/TeamNocturnal/AndroidToolkit/releases/latest](https://github.com/TeamNocturnal/AndroidToolkit/releases/latest)
+- All releases, including nightlies: [github.com/TeamNocturnal/AndroidToolkit/releases](https://github.com/TeamNocturnal/AndroidToolkit/releases)
+
+### macOS
+
+Download the `.dmg` for your Mac:
+
+- Apple Silicon: `aarch64` / `arm64`
+- Intel: `x86_64`
+
+Install flow:
+
+1. Download the release `.dmg`
+2. Open it
+3. Drag `Android Toolkit.app` into `Applications`
+4. Launch the app from `Applications`
+
+Because current macOS builds are ad-hoc signed and not notarized, Gatekeeper may block the app the first time. If that happens:
+
+1. Try to open the blocked `.dmg` or `.app`
+2. Click `Done`
+3. Open `System Settings`
+4. Go to `Privacy & Security`
+5. Scroll to the `Security` section
+6. Click `Open Anyway`
+7. Confirm and launch it again
+
+If you install from the DMG, you may need to repeat that process once for the DMG and once again for the app itself.
+
+### Windows
+
+Download either the `.exe` installer or the `.msi` package from the release page.
+
+Install flow:
+
+1. Download the Windows release asset
+2. Run the `.exe` installer or open the `.msi`
+3. Follow the setup prompts
+4. Launch `Android Toolkit` from the Start menu or desktop shortcut
+
+If Windows SmartScreen warns on first launch, click `More info`, then `Run anyway`.
+
+### Linux
+
+Download the package that best matches your distro:
+
+- Debian / Ubuntu / Linux Mint / Pop!_OS / KDE Neon: `.deb`
+- Fedora / openSUSE: `.rpm`
+- Arch Linux / EndeavourOS / Manjaro: prefer `AppImage` when available
+
+#### Debian-based distros
+
+```bash
+cd ~/Downloads
+sudo apt update
+sudo apt install ./Android-Toolkit_<version>_amd64.deb
+```
+
+#### Fedora
+
+```bash
+cd ~/Downloads
+sudo dnf install ./Android-Toolkit-<version>-1.x86_64.rpm
+```
+
+#### openSUSE
+
+```bash
+cd ~/Downloads
+sudo zypper install ./Android-Toolkit-<version>-1.x86_64.rpm
+```
+
+#### Arch Linux / EndeavourOS / Manjaro
+
+Make the `AppImage` executable, then launch it:
+
+```bash
+cd ~/Downloads
+chmod +x Android-Toolkit-*.AppImage
+./Android-Toolkit-*.AppImage
+```
+
+If your desktop menu does not refresh after installing a Linux package, sign out and back in once or restart the desktop shell/session.
+
 ## Build From Source
 
 ### Before You Start
@@ -104,18 +192,7 @@ git config user.email "XsMagical@Team-Nocturnal.com"
 npm install
 ```
 
-## GitHub Sync
-
-This repo should stay in sync through `GitHub`, not through `OneDrive` or another live-sync folder.
-
-### Clone the repo
-
-```bash
-git clone https://github.com/TeamNocturnal/AndroidToolkit.git
-cd AndroidToolkit
-```
-
-### Check your remote
+### 3. Check Your Git Remote
 
 ```bash
 git remote -v
@@ -127,7 +204,7 @@ The main remote should point to:
 https://github.com/TeamNocturnal/AndroidToolkit.git
 ```
 
-### Optional Git identity setup
+### 4. Optional Git Identity Setup
 
 If you have not set your Git name and email on this machine yet, configure them with your own details:
 
@@ -136,7 +213,7 @@ git config user.name "Your Name"
 git config user.email "you@example.com"
 ```
 
-### Pull the latest changes
+### 5. Pull The Latest Changes
 
 ```bash
 git checkout main
@@ -146,14 +223,14 @@ npm install
 
 Run `npm install` after pulling any time `package.json` or `package-lock.json` changed.
 
-### Check your local changes
+### 6. Check Your Local Changes
 
 ```bash
 git status
 git diff --stat
 ```
 
-### Push your updates back to GitHub
+### 7. Push Your Updates Back To GitHub
 
 ```bash
 git checkout main
@@ -164,7 +241,7 @@ git commit -m "Short clear summary of changes"
 git push origin main
 ```
 
-### Use a branch when the change is bigger
+### 8. Use A Branch For Bigger Changes
 
 If the update is larger or you want a cleaner review path, use a branch:
 
@@ -177,7 +254,7 @@ git commit -m "Short clear summary of changes"
 git push -u origin codex/short-change-name
 ```
 
-### If Git says your branch is behind
+### 9. If Git Says Your Branch Is Behind
 
 ```bash
 git checkout main
@@ -186,7 +263,7 @@ git pull --ff-only origin main
 
 Then run your commit or branch steps again.
 
-### Safe cleanup before rebuilding
+### 10. Safe Cleanup Before Rebuilding
 
 If you need a clean rebuild, these folders are safe to remove:
 
@@ -200,7 +277,7 @@ rm -rf src-tauri/gen/android/build
 
 Do not remove the repo itself, `.git`, or the committed Android project files under `src-tauri/gen/android`.
 
-## macOS Setup
+## Build On macOS
 
 ### Requirements
 
@@ -291,7 +368,7 @@ Use this flow each time macOS blocks it:
 
 If you install from the DMG, expect to repeat the same `Open Anyway` process once for the installer and once again for the app itself on first launch.
 
-## Windows Setup
+## Build On Windows
 
 ### Requirements
 
@@ -334,7 +411,7 @@ npm run tauri build
 - If you plan to build Android on Windows too, keep your Android SDK / NDK / Java paths configured in your environment first.
 - The older environment notes in [WINDOWS_ENV.md](/Users/xs/Library/CloudStorage/OneDrive-Personal/Team%20Nocturnal/Projects/Nocturnal%20Toolkit/WINDOWS_ENV.md) are still useful as a machine-specific reference.
 
-## Linux Setup
+## Build On Linux
 
 Linux desktop builds are now supported for `x86_64` systems, including `Debian`, `Fedora`, `Arch Linux`, and `openSUSE`.
 
@@ -531,59 +608,6 @@ Expected output will usually include Linux bundle directories such as:
 - `src-tauri/target/release/bundle/rpm/`
 
 Depending on the host distro and installed tooling, Tauri may emit one or more Linux package artifacts inside those folders.
-
-### Install The Nightly `.deb`
-
-Nightly GitHub releases can include a `.deb` package for Linux. The generated Tauri Debian package already includes the app metadata, icons, and a Desktop entry, so after install you should get an `Android Toolkit` launcher in your app menu like a normal desktop app.
-
-If your desktop menu does not refresh immediately after install, sign out and back in once, or restart the desktop shell/session.
-
-#### Debian / Ubuntu / Linux Mint / Pop!_OS / Zorin / KDE Neon / other Debian-based distros
-
-Download the nightly `.deb`, then install it with:
-
-```bash
-cd ~/Downloads
-sudo apt update
-sudo apt install ./Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
-```
-
-That `apt install ./file.deb` form is preferred because it installs the package and resolves dependencies in one step.
-
-#### Fedora
-
-Fedora is `rpm`-native, so the nightly `.rpm` is the better choice when available. If you only have the `.deb`, install `alien` first and convert it:
-
-```bash
-cd ~/Downloads
-sudo dnf install alien
-sudo alien -r Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
-sudo dnf install ./android-toolkit-2.0.3-1.x86_64.rpm
-```
-
-#### openSUSE
-
-openSUSE is also `rpm`-native, so prefer the nightly `.rpm` when available. If you only have the `.deb`, convert it first:
-
-```bash
-cd ~/Downloads
-sudo zypper install alien
-sudo alien -r Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
-sudo zypper install ./android-toolkit-2.0.3-1.x86_64.rpm
-```
-
-#### Arch Linux / EndeavourOS / Manjaro
-
-Arch-based systems should prefer the nightly `AppImage` or a native package recipe, but if you need to work from the `.deb` release asset you can extract it with `debtap` and install the converted package:
-
-```bash
-cd ~/Downloads
-sudo pacman -S --needed debtap
-sudo debtap Android-Toolkit_2.0.3_nightly-YYYYMMDD-HHMMSS_amd64.deb
-sudo pacman -U ./android-toolkit-2.0.3-1-x86_64.pkg.tar.zst
-```
-
-After install, search for `Android Toolkit` in your desktop launcher or app menu.
 
 ### Notes For Linux
 
