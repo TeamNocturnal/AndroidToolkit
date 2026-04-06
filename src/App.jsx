@@ -227,6 +227,14 @@ function decodeBase64Bytes(value) {
   return bytes
 }
 
+function captureResultToImageUrl(result, fallbackMime = 'image/png') {
+  if (!result?.b64) return ''
+  const mime = String(result.mime || fallbackMime || 'image/png').trim() || 'image/png'
+  const bytes = decodeBase64Bytes(String(result.b64).trim())
+  const blob = new Blob([bytes], { type: mime })
+  return URL.createObjectURL(blob)
+}
+
 function concatBytes(...parts) {
   const total = parts.reduce((sum, part) => sum + (part?.length || 0), 0)
   const next = new Uint8Array(total)
@@ -371,30 +379,6 @@ function parseSpsConfig(unit) {
   return { codec, width, height }
 }
 
-function buildAvcDecoderConfigDescription(spsUnit, ppsUnit) {
-  const sps = stripStartCode(spsUnit)
-  const pps = stripStartCode(ppsUnit)
-  if (!sps?.length || !pps?.length || sps.length < 4) return null
-
-  const description = new Uint8Array(11 + sps.length + pps.length)
-  let offset = 0
-  description[offset++] = 1
-  description[offset++] = sps[1]
-  description[offset++] = sps[2]
-  description[offset++] = sps[3]
-  description[offset++] = 0xff
-  description[offset++] = 0xe1
-  description[offset++] = (sps.length >> 8) & 0xff
-  description[offset++] = sps.length & 0xff
-  description.set(sps, offset)
-  offset += sps.length
-  description[offset++] = 1
-  description[offset++] = (pps.length >> 8) & 0xff
-  description[offset++] = pps.length & 0xff
-  description.set(pps, offset)
-  return description
-}
-
 function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
   const state = {
     supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
@@ -419,7 +403,6 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
       onFrame?.(frame)
     },
     error: error => {
-      state.configured = false
       onStatus?.(`Decoder error: ${error?.message || error}`)
     },
   })
@@ -428,20 +411,16 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
     if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
     if (!state.configured) {
       const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
-      const description = buildAvcDecoderConfigDescription(state.latestSps, state.latestPps)
-      if (!spsConfig || !description) return
+      if (!spsConfig) return
       try {
         state.decoder.configure({
           codec: spsConfig.codec,
-          description,
           optimizeForLatency: true,
           codedWidth: spsConfig.width,
           codedHeight: spsConfig.height,
         })
       } catch (error) {
-        onStatus?.(`Live stream decoder unavailable; compatibility mode required: ${error?.message || error}`)
-        state.accessUnit = []
-        state.hasVcl = false
+        onStatus?.(`Decoder rejected configuration: ${error?.message || error}`)
         return
       }
       state.configured = true
@@ -902,17 +881,19 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
   )
 }
 
-function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false }) {
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false, onGeometryChange }) {
   const canvasRef = useRef(null)
   const snapshotRef = useRef(null)
   const gestureRef = useRef(null)
-  const compatibilityBusyRef = useRef(false)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
-  const [compatibilityMode, setCompatibilityMode] = useState(false)
-  const [compatibilitySnapshotSrc, setCompatibilitySnapshotSrc] = useState('')
+  const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 })
 
-  const activeSnapshotSrc = compatibilitySnapshotSrc || snapshotSrc
+  const recordSurfaceSize = useCallback((width, height) => {
+    if (!width || !height) return
+    setSurfaceSize(current => (current.width === width && current.height === height ? current : { width, height }))
+    onGeometryChange?.({ width, height })
+  }, [onGeometryChange])
 
   function activeSurfaceMetrics() {
     if (hasVideo && canvasRef.current) {
@@ -999,19 +980,12 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   useEffect(() => {
     setHasVideo(false)
     setDecoderStatus('')
-    setCompatibilityMode(false)
-    setCompatibilitySnapshotSrc('')
+    setSurfaceSize({ width: 0, height: 0 })
     if (!serial) return undefined
 
     const decoder = createLiveStreamDecoder({
       serial,
-      onStatus: message => {
-        const nextStatus = message || ''
-        setDecoderStatus(nextStatus)
-        if (/(compatibility mode required|does not support the VideoDecoder API|Decoder rejected frame|Decoder error)/i.test(nextStatus)) {
-          setCompatibilityMode(true)
-        }
-      },
+      onStatus: message => setDecoderStatus(message || ''),
       onFrame: frame => {
         const canvas = canvasRef.current
         if (!canvas) {
@@ -1025,8 +999,8 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
         const ctx = canvas.getContext('2d', { alpha: false })
         ctx?.drawImage(frame, 0, 0, width, height)
         frame.close()
+        recordSurfaceSize(width, height)
         setHasVideo(true)
-        setCompatibilityMode(false)
       },
     })
 
@@ -1048,51 +1022,19 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
       unlistenStatus?.()
       decoder.stop?.()
     }
-  }, [serial])
+  }, [serial, recordSurfaceSize])
 
   useEffect(() => {
-    if (!running || !serial || hasVideo || compatibilityMode) return undefined
-    const timer = window.setTimeout(() => {
-      setCompatibilityMode(true)
-      setDecoderStatus(current => current || 'Live decoder stalled; switching to compatibility capture mode…')
-    }, 2200)
-    return () => window.clearTimeout(timer)
-  }, [running, serial, hasVideo, compatibilityMode])
-
-  useEffect(() => {
-    if (!running || !serial || hasVideo || !compatibilityMode) return undefined
-    let cancelled = false
-    let timerId = null
-
-    const pollFrame = async () => {
-      if (cancelled || compatibilityBusyRef.current) return
-      compatibilityBusyRef.current = true
-      try {
-        const res = await invoke('capture_screen_frame', { serial })
-        if (cancelled) return
-        if (!res?.ok || !res?.b64) {
-          throw new Error(res?.stderr || 'Failed to capture a compatibility frame.')
-        }
-        const normalizedB64 = String(res.b64).trim()
-        const src = normalizedB64.startsWith('data:')
-          ? normalizedB64
-          : `data:image/png;base64,${normalizedB64}`
-        setCompatibilitySnapshotSrc(src)
-        setDecoderStatus('Live stream running in compatibility capture mode.')
-      } catch (error) {
-        if (!cancelled) setDecoderStatus(`Compatibility capture failed: ${error}`)
-      } finally {
-        compatibilityBusyRef.current = false
-        if (!cancelled) timerId = window.setTimeout(pollFrame, 900)
-      }
+    if (!snapshotSrc || hasVideo) return
+    const image = snapshotRef.current
+    if (image?.complete && image.naturalWidth && image.naturalHeight) {
+      recordSurfaceSize(image.naturalWidth, image.naturalHeight)
     }
+  }, [snapshotSrc, hasVideo, recordSurfaceSize])
 
-    pollFrame()
-    return () => {
-      cancelled = true
-      if (timerId) window.clearTimeout(timerId)
-    }
-  }, [running, serial, hasVideo, compatibilityMode])
+  const aspectRatio = surfaceSize.width && surfaceSize.height
+    ? `${surfaceSize.width} / ${surfaceSize.height}`
+    : undefined
 
   return (
     <>
@@ -1104,10 +1046,11 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
           onPointerUp={handlePointerUp}
           style={{
             display: hasVideo ? 'block' : 'none',
-            width: 'auto',
-            height: 'auto',
+            width: '100%',
+            height: '100%',
             maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
             maxHeight: '100%',
+            aspectRatio,
             borderRadius: 20,
             border: '1px solid var(--border)',
             background: '#111',
@@ -1116,21 +1059,28 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             cursor: interactive && running ? 'crosshair' : 'default',
           }}
         />
-        {!hasVideo && activeSnapshotSrc && (
+        {!hasVideo && snapshotSrc && (
           <img
             ref={snapshotRef}
-            key={activeSnapshotSrc}
-            src={activeSnapshotSrc}
+            key={snapshotSrc}
+            src={snapshotSrc}
             alt="Connected device preview"
+            onLoad={() => {
+              const image = snapshotRef.current
+              if (image?.naturalWidth && image?.naturalHeight) {
+                recordSurfaceSize(image.naturalWidth, image.naturalHeight)
+              }
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             style={{
               display: 'block',
-              width: 'auto',
-              height: 'auto',
+              width: '100%',
+              height: '100%',
               maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
               maxHeight: '100%',
+              aspectRatio,
               borderRadius: 20,
               border: '1px solid var(--border)',
               objectFit: 'contain',
@@ -1139,7 +1089,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             }}
           />
         )}
-        {!hasVideo && !activeSnapshotSrc && (
+        {!hasVideo && !snapshotSrc && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
             {running ? 'Waiting for first video frame…' : emptyLabel}
           </div>
@@ -6572,6 +6522,181 @@ const HELP_CONNECTION_CARDS = [
   },
 ]
 
+const HELP_GUIDE_SECTIONS = [
+  {
+    id: 'start-here',
+    title: 'Start Here',
+    summary: 'A simple order for safe everyday use: connect the device, confirm it appears, choose the right panel, back up before risky changes, and test one change at a time.',
+    tags: ['basics', 'beginner', 'first run', 'safe workflow'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Getting Started', target: 'getting-started' },
+    ],
+    items: [
+      'Connect the device first, then confirm it shows as connected before doing anything else.',
+      'Use the panel that matches the job instead of jumping straight into advanced tools.',
+      'Create a backup before app removals, launcher changes, or flashing work.',
+      'Change one thing at a time so it is easier to undo or troubleshoot.',
+    ],
+  },
+  {
+    id: 'connect-device',
+    title: 'Connect a Device',
+    summary: 'Use this when the toolkit cannot see your phone, TV box, or headset yet.',
+    tags: ['usb', 'wireless adb', 'pairing', 'developer options', 'connected devices'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Read Wireless Guide', url: 'https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi' },
+    ],
+    items: [
+      'Enable Developer Options, then turn on USB debugging on the Android device.',
+      'For USB setup, unlock the device and press Allow if Android asks whether to trust this computer.',
+      'Wireless ADB uses two steps: Pair via Code first, then Connect with the separate host and port from the main Wireless debugging screen.',
+      'If a device shows Unauthorized, reconnect it, unlock it, and accept the USB debugging prompt again.',
+    ],
+  },
+  {
+    id: 'everyday-workflows',
+    title: 'Everyday Workflows',
+    summary: 'Quick paths for the tasks most users come here to do.',
+    tags: ['install', 'backup', 'logs', 'tv', 'workflow'],
+    actions: [
+      { label: 'Open Install APK', target: 'install' },
+      { label: 'Open Backup & Restore', target: 'backups' },
+      { label: 'Open ADB & Shell', target: 'adb' },
+    ],
+    items: [
+      'Install an app: connect the device, open Install APK, add the package, then install it.',
+      'Find and install an app: search in Search APKs, add it to the queue, then finish in Install APK.',
+      'Back up before experimenting: open Backup & Restore, choose the app, create the backup, and confirm it appears before making changes.',
+      'Watch logs while testing: connect the device, open ADB & Shell, start Logcat, then reproduce the issue.',
+      'Pair a TV box over Wi-Fi: enable Wireless debugging, pair with the temporary pairing port and code, then connect with the separate host and port.',
+    ],
+  },
+  {
+    id: 'troubleshooting',
+    title: 'Troubleshooting',
+    summary: 'The fastest fixes for the problems users hit most often.',
+    tags: ['not detected', 'unauthorized', 'install failed', 'restore', 'linux', 'windows', 'macos'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Drivers', target: 'drivers' },
+      { label: 'Open Help Section', target: 'help' },
+    ],
+    items: [
+      'Device not detected over USB: unlock the device, confirm USB debugging, accept the prompt, try another USB port, try a known data-capable cable, then rescan in Connected Devices.',
+      'Windows: install the correct USB driver from Drivers if adb or fastboot cannot see the device.',
+      'Linux: use the USB permissions fix below when the phone does not appear even though USB debugging is enabled.',
+      'macOS: reconnect the device after platform-tools are installed and confirm the phone still has USB debugging enabled.',
+      'Wireless ADB not connecting: confirm both devices are on the same network, recheck both host:port values, and pair again if the code expired.',
+      'APK install failed: check storage, Android version compatibility, package signatures, and split-package handling for XAPK or APKM files.',
+      'Restore did not bring everything back: APKs, OBB files, and shared folders usually restore, but some private app data still needs root, an app export, or a fresh sign-in.',
+    ],
+  },
+  {
+    id: 'best-panel',
+    title: 'Find the Right Panel',
+    summary: 'If you know the goal but not the section, start here.',
+    tags: ['which panel', 'reference', 'where do i go', 'quick reference'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Apps', target: 'apps' },
+    ],
+    items: [
+      'Connect a phone, TV, or headset: Connected Devices.',
+      'Sideload an APK: Install APK.',
+      'Find download sources: Search APKs.',
+      'Install a third-party store: App Stores.',
+      'Remove, launch, or inspect an app: Manage Apps.',
+      'Back up and restore apps: Backup & Restore.',
+      'Run commands or watch logs: ADB & Shell.',
+      'Browse storage and move files: File Browser.',
+      'Tune TV or Fire TV devices: TV & Streaming.',
+      'Work with Quest headsets: Quest Tools.',
+      'Troubleshoot Windows USB detection: Drivers.',
+    ],
+  },
+]
+
+function helpSectionMatches(section, query) {
+  if (!query) return true
+  const haystack = [
+    section.title,
+    section.summary,
+    ...(section.tags || []),
+    ...(section.items || []),
+  ].join(' ').toLowerCase()
+  return haystack.includes(query.toLowerCase())
+}
+
+function HelpGuideSection({ section, isAndroid, onOpenPanel }) {
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-md)',
+      padding: '16px 18px',
+    }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: isAndroid ? 15 : 'var(--text-base)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+            {section.title}
+          </div>
+          <div style={{ fontSize: isAndroid ? 13 : 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            {section.summary}
+          </div>
+        </div>
+        {section.tags?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+            {section.tags.slice(0, 4).map(tag => (
+              <span key={tag} style={{
+                padding: '3px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: 10,
+                color: 'var(--text-muted)',
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginBottom: 12 }}>
+        {section.items.map((item, index) => (
+          <div key={`${section.id}-${index}`} style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '10px 12px',
+            fontSize: isAndroid ? 13 : 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+            lineHeight: 1.6,
+          }}>
+            <span style={{ color: 'var(--accent-teal)', fontWeight: 'var(--font-bold)' }}>{index + 1}.</span>{' '}
+            {item}
+          </div>
+        ))}
+      </div>
+      {section.actions?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {section.actions.map(action => (
+            <button
+              key={`${section.id}-${action.label}`}
+              className="btn-ghost"
+              style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+              onClick={() => action.target ? onOpenPanel?.(action.target) : openUrl(action.url)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PlatformSetupCard({ title, kicker, body, accent, current, steps = [], actions = [], command = '', details = '', children }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -6690,6 +6815,8 @@ function PlatformSetupCard({ title, kicker, body, accent, current, steps = [], a
 
 function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
+  const [guideQuery, setGuideQuery] = useState('')
+  const guideSectionRefs = useRef({})
   useEffect(() => {
     const preview = previewPlatformOverride()
     if (preview) {
@@ -6739,6 +6866,9 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const panelTitle = mode === 'getting-started' ? 'Getting Started' : mode === 'about' ? 'About' : 'Help & Docs'
   const showConnectionHelp = mode === 'help' && !isAndroid
   const showPlatformSetup = mode === 'help' && !isAndroid
+  const showGuideFinder = mode === 'help'
+  const filteredGuideSections = HELP_GUIDE_SECTIONS.filter(section => helpSectionMatches(section, guideQuery))
+  const quickJumpSections = HELP_GUIDE_SECTIONS.map(section => ({ id: section.id, title: section.title }))
   const platformSetupCards = [
     {
       id: 'linux',
@@ -6833,6 +6963,78 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {showGuideFinder && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(20,184,166,0.06))',
+              border: '1px solid rgba(168,85,247,0.18)',
+              borderRadius: 'var(--radius-md)',
+              padding: '18px 20px',
+            }}>
+              <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+                Find the right help fast
+              </div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
+                This guide is based on the Android Toolkit User Guide and reorganized for quick scanning inside the app. Search by task, problem, or panel name to jump to the section you need.
+              </div>
+              <input
+                value={guideQuery}
+                onChange={event => setGuideQuery(event.target.value)}
+                placeholder="Search help topics like wireless adb, backup, unauthorized, tv, drivers..."
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)',
+                  fontSize: 'var(--text-sm)',
+                  padding: '10px 12px',
+                  outline: 'none',
+                  marginBottom: 12,
+                }}
+              />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {quickJumpSections.map(section => (
+                  <button
+                    key={section.id}
+                    className="btn-ghost"
+                    style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                    onClick={() => guideSectionRefs.current[section.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    {section.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showGuideFinder && (
+          <div style={{ marginBottom: 24 }}>
+            <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Guide Sections</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+              {filteredGuideSections.map(section => (
+                <div key={section.id} ref={node => { guideSectionRefs.current[section.id] = node }}>
+                  <HelpGuideSection section={section} isAndroid={isAndroid} onOpenPanel={onOpenPanel} />
+                </div>
+              ))}
+              {filteredGuideSections.length === 0 && (
+                <div style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '16px 18px',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.6,
+                }}>
+                  No guide sections matched "{guideQuery}". Try a panel name like "Install APK" or a problem like "unauthorized", "wireless adb", or "drivers".
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -8294,6 +8496,9 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   const [liveViewSrc, setLiveViewSrc] = useState('')
   const [liveViewStatus, setLiveViewStatus] = useState('Idle')
   const mirrorPopupRef = useRef(null)
+  const liveViewUrlRef = useRef('')
+  const liveViewGeometryRef = useRef({ width: 0, height: 0 })
+  const lastOrientationRef = useRef(null)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -8374,14 +8579,43 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     }
   }
 
-  async function restartLiveStream(reason = null) {
+  const restartLiveStream = useCallback(async (reason = null) => {
     if (!serial || noDevice || !liveViewRunning) return
     if (reason) setLiveViewStatus(reason)
+    liveViewGeometryRef.current = { width: 0, height: 0 }
     await invoke('stop_live_stream').catch(() => null)
     await new Promise(resolve => window.setTimeout(resolve, 120))
     await invoke('start_live_stream', { serial })
     updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+  }, [serial, noDevice, liveViewRunning, device?.model])
+
+  function noteLiveGeometry(next) {
+    liveViewGeometryRef.current = next || { width: 0, height: 0 }
   }
+
+  const readDeviceOrientation = useCallback(async () => {
+    if (!serial) return null
+    try {
+      const res = await invoke('run_adb', {
+        args: [
+          '-s',
+          serial,
+          'shell',
+          'sh',
+          '-c',
+          'dumpsys display | grep mCurrentOrientation | head -n1',
+        ],
+      })
+      const output = `${res?.stdout || ''}\n${res?.stderr || ''}`
+      const match = output.match(/mCurrentOrientation=(\d+)/)
+      if (!match) return null
+      const value = Number(match[1])
+      if (Number.isNaN(value)) return null
+      return value
+    } catch {
+      return null
+    }
+  }, [serial])
 
   async function captureLiveFrame() {
     if (!serial) return
@@ -8391,10 +8625,9 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       if (!res?.ok || !res?.b64) {
         throw new Error(res?.stderr || 'Failed to capture live frame.')
       }
-      const normalizedB64 = String(res.b64).trim()
-      const src = normalizedB64.startsWith('data:')
-        ? normalizedB64
-        : `data:image/png;base64,${normalizedB64}`
+      const src = captureResultToImageUrl(res, 'image/png')
+      if (liveViewUrlRef.current) URL.revokeObjectURL(liveViewUrlRef.current)
+      liveViewUrlRef.current = src
       setLiveViewSrc(src)
       setLiveViewStatus(`Snapshot captured • ${new Date().toLocaleTimeString()}`)
     } catch (error) {
@@ -8440,6 +8673,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   useEffect(() => {
     if (!liveViewRunning || noDevice || !serial) return undefined
     setLiveViewStatus('Starting live stream…')
+    liveViewGeometryRef.current = { width: 0, height: 0 }
     invoke('start_live_stream', { serial })
       .then(() => updateMirrorPopup(null, `Connected to ${device?.model || serial}`))
       .catch(error => {
@@ -8454,6 +8688,44 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   }, [liveViewRunning, serial, noDevice, device?.model])
 
   useEffect(() => {
+    if (!liveViewRunning || noDevice || !serial) {
+      lastOrientationRef.current = null
+      return undefined
+    }
+
+    let cancelled = false
+    let timerId = null
+
+    const pollOrientation = async () => {
+      const nextOrientation = await readDeviceOrientation()
+      if (cancelled || nextOrientation == null) {
+        if (!cancelled) timerId = window.setTimeout(pollOrientation, 1200)
+        return
+      }
+
+      const previousOrientation = lastOrientationRef.current
+      lastOrientationRef.current = nextOrientation
+      const surface = liveViewGeometryRef.current
+      const streamLooksPortrait = surface.width > 0 && surface.height > 0
+        ? surface.height >= surface.width
+        : null
+      const deviceLooksPortrait = nextOrientation % 2 === 0
+
+      if (previousOrientation != null && previousOrientation !== nextOrientation && streamLooksPortrait !== null && streamLooksPortrait !== deviceLooksPortrait) {
+        await restartLiveStream('Device rotated • refreshing live stream…')
+      }
+
+      if (!cancelled) timerId = window.setTimeout(pollOrientation, 1200)
+    }
+
+    pollOrientation()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [liveViewRunning, noDevice, serial, readDeviceOrientation, restartLiveStream])
+
+  useEffect(() => {
     let unlisten
     listen('live-stream:status', event => {
       const payload = event.payload || {}
@@ -8464,6 +8736,15 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       unlisten = fn
     })
     return () => unlisten?.()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (liveViewUrlRef.current) {
+        URL.revokeObjectURL(liveViewUrlRef.current)
+        liveViewUrlRef.current = ''
+      }
+    }
   }, [])
 
   const sectionStyle = {
@@ -8539,7 +8820,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
                 {liveViewStatus}
               </div>
             </div>
-            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive />
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive maxDisplayWidth={null} onGeometryChange={noteLiveGeometry} />
           </div>
         </div>
 
@@ -10448,7 +10729,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
       <div className="panel-header-row">
         <div style={{ minWidth: 0 }}>
           <div className="panel-header-accent" />
-          <h1 className="panel-header">{isAndroid ? 'Shell & Logs' : 'ADB &amp; Shell'}</h1>
+          <h1 className="panel-header">{isAndroid ? 'Shell & Logs' : 'ADB & Shell'}</h1>
         </div>
         {noDevice && (
           <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', flexShrink: 0 }} onClick={onNavigateToDevices}>
