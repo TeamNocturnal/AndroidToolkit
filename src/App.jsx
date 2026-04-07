@@ -7,6 +7,7 @@ import { open as openDialog, confirm as dialogConfirm } from '@tauri-apps/plugin
 import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { readDir, readTextFile, writeTextFile, mkdir, remove, exists, stat as fsStat, copyFile } from '@tauri-apps/plugin-fs'
 import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
+import QRCode from 'qrcode'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
@@ -233,6 +234,21 @@ function captureResultToImageUrl(result, fallbackMime = 'image/png') {
   const bytes = decodeBase64Bytes(String(result.b64).trim())
   const blob = new Blob([bytes], { type: mime })
   return URL.createObjectURL(blob)
+}
+
+function escapeWifiQrValue(value) {
+  return String(value || '').replace(/([\\;,:"])/g, '\\$1')
+}
+
+function createAdbQrPayload(serviceName, password) {
+  return `WIFI:T:ADB;S:${escapeWifiQrValue(serviceName)};P:${escapeWifiQrValue(password)};;`
+}
+
+function randomAdbQrToken(length = 10) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, value => alphabet[value % alphabet.length]).join('')
 }
 
 function concatBytes(...parts) {
@@ -881,17 +897,15 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
   )
 }
 
-function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false, onGeometryChange }) {
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, minDisplayHeight = 460, fitToContainer = false, interactive = false, onGeometryChange }) {
   const canvasRef = useRef(null)
   const snapshotRef = useRef(null)
   const gestureRef = useRef(null)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
-  const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 })
 
   const recordSurfaceSize = useCallback((width, height) => {
     if (!width || !height) return
-    setSurfaceSize(current => (current.width === width && current.height === height ? current : { width, height }))
     onGeometryChange?.({ width, height })
   }, [onGeometryChange])
 
@@ -980,7 +994,6 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   useEffect(() => {
     setHasVideo(false)
     setDecoderStatus('')
-    setSurfaceSize({ width: 0, height: 0 })
     if (!serial) return undefined
 
     const decoder = createLiveStreamDecoder({
@@ -1032,13 +1045,9 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
     }
   }, [snapshotSrc, hasVideo, recordSurfaceSize])
 
-  const aspectRatio = surfaceSize.width && surfaceSize.height
-    ? `${surfaceSize.width} / ${surfaceSize.height}`
-    : undefined
-
   return (
     <>
-      <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ width: '100%', height: fitToContainer ? '100%' : 'auto', minHeight: minDisplayHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden', boxSizing: 'border-box' }}>
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}
@@ -1046,11 +1055,10 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
           onPointerUp={handlePointerUp}
           style={{
             display: hasVideo ? 'block' : 'none',
-            width: '100%',
-            height: '100%',
-            maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+            width: 'auto',
+            height: 'auto',
+            maxWidth: fitToContainer ? '100%' : (maxDisplayWidth ? `${maxDisplayWidth}px` : '100%'),
             maxHeight: '100%',
-            aspectRatio,
             borderRadius: 20,
             border: '1px solid var(--border)',
             background: '#111',
@@ -1076,11 +1084,10 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             onPointerUp={handlePointerUp}
             style={{
               display: 'block',
-              width: '100%',
-              height: '100%',
-              maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: fitToContainer ? '100%' : (maxDisplayWidth ? `${maxDisplayWidth}px` : '100%'),
               maxHeight: '100%',
-              aspectRatio,
               borderRadius: 20,
               border: '1px solid var(--border)',
               objectFit: 'contain',
@@ -8495,6 +8502,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   const [liveViewRunning, setLiveViewRunning] = useState(false)
   const [liveViewSrc, setLiveViewSrc] = useState('')
   const [liveViewStatus, setLiveViewStatus] = useState('Idle')
+  const [mirrorFrameMode, setMirrorFrameMode] = useState('portrait')
   const mirrorPopupRef = useRef(null)
   const liveViewUrlRef = useRef('')
   const liveViewGeometryRef = useRef({ width: 0, height: 0 })
@@ -8643,10 +8651,12 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     if (existing) {
       existing.setFocus().catch(() => {})
       mirrorPopupRef.current = existing
-      if (liveViewRunning) {
-        await restartLiveStream('Refreshing stream for pop-out window…')
-      }
       return
+    }
+    if (liveViewRunning) {
+      await invoke('stop_live_stream').catch(() => null)
+      setLiveViewRunning(false)
+      setLiveViewStatus('Stream moved to pop-out window. Start it there when ready.')
     }
     const title = `Nocturnal Screen Mirror${device?.model ? ` • ${device.model}` : ''}`
     const win = new WebviewWindow(label, {
@@ -8663,26 +8673,37 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       append(`Live-view popout error: ${e.payload ?? e}`)
       mirrorPopupRef.current = null
     })
+    win.once('tauri://created', async () => {
+    })
+    win.once('tauri://destroyed', async () => {
+      mirrorPopupRef.current = null
+      await invoke('stop_live_stream').catch(() => null)
+      setLiveViewStatus('Pop-out window closed. Start the stream here to resume in the app.')
+    })
     mirrorPopupRef.current = win
-    if (liveViewRunning) {
-      await new Promise(resolve => window.setTimeout(resolve, 180))
-      await restartLiveStream('Refreshing stream for pop-out window…')
-    }
   }
 
   useEffect(() => {
     if (!liveViewRunning || noDevice || !serial) return undefined
     setLiveViewStatus('Starting live stream…')
     liveViewGeometryRef.current = { width: 0, height: 0 }
-    invoke('start_live_stream', { serial })
-      .then(() => updateMirrorPopup(null, `Connected to ${device?.model || serial}`))
-      .catch(error => {
-        const message = `Live stream failed to start: ${error}`
-        setLiveViewStatus(message)
-        append(message)
-        setLiveViewRunning(false)
-      })
+    let cancelled = false
+    const timerId = window.setTimeout(() => {
+      invoke('start_live_stream', { serial })
+        .then(() => {
+          if (!cancelled) updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+        })
+        .catch(error => {
+          if (cancelled) return
+          const message = `Live stream failed to start: ${error}`
+          setLiveViewStatus(message)
+          append(message)
+          setLiveViewRunning(false)
+        })
+    }, 140)
     return () => {
+      cancelled = true
+      window.clearTimeout(timerId)
       invoke('stop_live_stream').catch(() => null)
     }
   }, [liveViewRunning, serial, noDevice, device?.model])
@@ -8755,6 +8776,8 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   }
 
   const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
+  const mirrorDisplayWidth = mirrorFrameMode === 'landscape' ? 720 : 360
+  const mirrorSurfaceMinHeight = mirrorFrameMode === 'landscape' ? 360 : 460
 
   return (
     <div className="panel-content">
@@ -8802,6 +8825,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
+            <button className="btn-ghost" style={{ ...actionButtonStyle, opacity: 0.45, cursor: 'not-allowed' }} disabled onClick={_openLivePopup} title="Pop-out is temporarily disabled while Screen Mirror is stabilized.">Pop Out</button>
             <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
             <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
           </div>
@@ -8816,11 +8840,34 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                 <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
               </div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Mirror Mode
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'portrait', label: 'Portrait' },
+                    { id: 'landscape', label: 'Landscape' },
+                  ].map(option => (
+                    <button
+                      key={option.id}
+                      className={mirrorFrameMode === option.id ? 'btn-primary' : 'btn-ghost'}
+                      style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => setMirrorFrameMode(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 6 }}>
+                  Landscape is experimental and may cause sizing or stream issues on some devices.
+                </div>
+              </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 {liveViewStatus}
               </div>
             </div>
-            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive maxDisplayWidth={null} onGeometryChange={noteLiveGeometry} />
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive maxDisplayWidth={mirrorDisplayWidth} minDisplayHeight={mirrorSurfaceMinHeight} onGeometryChange={noteLiveGeometry} />
           </div>
         </div>
 
@@ -8839,6 +8886,57 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 
 function LiveViewPopupWindow() {
   const serial = liveViewPopupSerial()
+  const [snapshotSrc, setSnapshotSrc] = useState('')
+  const [popupRunning, setPopupRunning] = useState(false)
+  const [popupStatus, setPopupStatus] = useState('Ready in pop-out window.')
+  const [surfaceSession, setSurfaceSession] = useState(0)
+
+  useEffect(() => {
+    if (!serial) return undefined
+    let cancelled = false
+    let objectUrl = ''
+
+    invoke('capture_screen_frame', { serial })
+      .then(result => {
+        if (cancelled || !result?.ok || !result?.b64) return
+        objectUrl = captureResultToImageUrl(result, 'image/png')
+        setSnapshotSrc(objectUrl)
+      })
+      .catch(() => null)
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [serial])
+
+  useEffect(() => {
+    if (!popupRunning || !serial) return undefined
+    setPopupStatus('Starting live stream…')
+    setSurfaceSession(current => current + 1)
+    invoke('start_live_stream', { serial })
+      .then(() => setPopupStatus(`Connected to ${serial}`))
+      .catch(error => {
+        setPopupStatus(`Live stream failed to start: ${error}`)
+        setPopupRunning(false)
+      })
+    return () => {
+      invoke('stop_live_stream').catch(() => null)
+    }
+  }, [popupRunning, serial])
+
+  useEffect(() => {
+    let unlisten
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (!payload.message) return
+      setPopupStatus(payload.message)
+      if (payload.state === 'stopped') setPopupRunning(false)
+    }).then(fn => {
+      unlisten = fn
+    })
+    return () => unlisten?.()
+  }, [])
 
   return (
     <div style={{
@@ -8853,8 +8951,18 @@ function LiveViewPopupWindow() {
       <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
         Nocturnal Screen Mirror
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
-        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." maxDisplayWidth={null} interactive />
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+        <button className="btn-primary" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} onClick={() => setPopupRunning(value => !value)}>
+          {popupRunning ? 'Stop' : 'Start Stream'}
+        </button>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5, minWidth: 0, flex: '1 1 220px', wordBreak: 'break-word' }}>
+          {popupStatus}
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <LiveVideoSurface key={`${serial}:${surfaceSession}`} serial={serial} running={popupRunning} snapshotSrc={snapshotSrc} emptyLabel="Start the stream in this pop-out window to mirror the connected device." maxDisplayWidth={null} minDisplayHeight={0} fitToContainer interactive />
+        </div>
       </div>
     </div>
   )
@@ -8871,6 +8979,7 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
   const [wifiStatus, setWifiStatus] = useState(null)
   const [savePromptIp, setSavePromptIp] = useState(null)
   const [saveDeviceName, setSaveDeviceName] = useState('')
+  const [qrPairState, setQrPairState] = useState({ open: false, serviceName: '', password: '', qrDataUrl: '', status: '', paired: false })
 
   // prefillPairIp is set by Pair buttons in device/saved lists; applied immediately to pairIp
   function triggerPrefill(ip) {
@@ -8929,6 +9038,32 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
     onRecordSavedHistory?.({ type: 'delete', label: 'Cleared all saved devices' })
   }
 
+  async function tryAutoConnectHost(host) {
+    const cleanHost = String(host || '').trim()
+    if (!cleanHost) return null
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const mdns = await invoke('run_adb', { args: ['mdns', 'services'] }).catch(() => null)
+        const mdnsOutput = [mdns?.stdout, mdns?.stderr].filter(Boolean).join('\n')
+        const escapedHost = cleanHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const match = mdnsOutput.match(new RegExp(`_adb-tls-connect\\._tcp\\s+(${escapedHost}:\\d+)`, 'i'))
+        if (match?.[1]) {
+          const target = match[1].trim()
+          const connectRes = await invoke('run_adb', { args: ['connect', target] })
+          const rawOut = [connectRes.stdout, connectRes.stderr].filter(Boolean).map(value => value.trim()).join('\n').trim() || 'No output'
+          if (/connected|already connected/i.test(rawOut) && !/unable|failed/i.test(rawOut)) {
+            setConnectIp(target)
+            return { target, rawOut }
+          }
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 600))
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+
   async function wifiConnect() {
     if (!connectIp.trim()) return
     setWifiStatus('Connecting…')
@@ -8966,14 +9101,118 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
     const importedTarget = pairIp.trim()
     setConnectIp(importedTarget)
     onRecordSavedHistory?.({ type: 'pair', label: `Paired with ${pairIp.trim()}` })
+    const autoConnect = await tryAutoConnectHost(importedTarget.split(':')[0])
+    if (autoConnect?.target) {
+      setWifiStatus(`Paired successfully and connected automatically.\n\nADB pair output:\n${rawOut}\n\nADB connect output:\n${autoConnect.rawOut}`)
+      onRecordSavedHistory?.({ type: 'connect', label: `Connected to ${autoConnect.target}` })
+      return
+    }
     setWifiStatus(`Paired successfully.\n\nADB output:\n${rawOut}\n\nThe Connect field now uses the exact host:port imported from your phone. If Wireless Debugging shows a different connect port on the device, update it there before clicking Connect.`)
   }
+
+  function closeQrPairModal() {
+    setQrPairState(current => ({
+      open: false,
+      serviceName: '',
+      password: '',
+      qrDataUrl: current.qrDataUrl,
+      status: '',
+      paired: false,
+    }))
+  }
+
+  async function openQrPairModal() {
+    const serviceName = `studio-${randomAdbQrToken(10)}`
+    const password = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')
+    const qrDataUrl = await QRCode.toDataURL(createAdbQrPayload(serviceName, password), {
+      margin: 1,
+      width: 280,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#f5f5f5',
+        light: '#101014',
+      },
+    })
+    setQrPairState({
+      open: true,
+      serviceName,
+      password,
+      qrDataUrl,
+      status: 'Waiting for your phone to scan the QR code…',
+      paired: false,
+    })
+  }
+
+  useEffect(() => {
+    if (!qrPairState.open || !qrPairState.serviceName || !qrPairState.password || qrPairState.paired) return undefined
+    let cancelled = false
+    let timerId = null
+
+    const pollQrPairing = async () => {
+      if (cancelled) return
+      try {
+        await invoke('run_adb', { args: ['start-server'] }).catch(() => null)
+        const mdns = await invoke('run_adb', { args: ['mdns', 'services'] })
+        const mdnsOutput = [mdns.stdout, mdns.stderr].filter(Boolean).join('\n')
+        const escapedServiceName = qrPairState.serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const match = mdnsOutput.match(new RegExp(`^\\s*${escapedServiceName}\\s+_adb-tls-pairing\\._tcp\\s+(\\S+)$`, 'm'))
+
+        if (!match) {
+          setQrPairState(current => current.open ? { ...current, status: 'QR shown. Scan it with the phone, then keep this window open while Toolkit waits for the pairing service…' } : current)
+          timerId = window.setTimeout(pollQrPairing, 1500)
+          return
+        }
+
+        const target = match[1].trim()
+        setQrPairState(current => current.open ? { ...current, status: `Phone detected. Pairing with ${target}…` } : current)
+        const pairRes = await invoke('run_adb', { args: ['pair', target, qrPairState.password] })
+        const pairOutput = [pairRes.stdout, pairRes.stderr].filter(Boolean).map(value => value.trim()).join('\n').trim() || 'No output'
+        const paired = /successfully paired|paired to|pairing successful/i.test(pairOutput)
+
+        if (!paired) {
+          setQrPairState(current => current.open ? { ...current, status: `QR pairing failed.\n\nADB output:\n${pairOutput}` } : current)
+          timerId = window.setTimeout(pollQrPairing, 2000)
+          return
+        }
+
+        const autoConnect = await tryAutoConnectHost(target.split(':')[0])
+        const status = autoConnect?.target
+          ? `QR pairing succeeded and connected automatically.\n\nADB pair output:\n${pairOutput}\n\nADB connect output:\n${autoConnect.rawOut}`
+          : `QR pairing succeeded.\n\nADB output:\n${pairOutput}\n\nIf the device does not auto-connect, use Connect with the Wireless debugging IP:port from the phone.`
+        setQrPairState(current => current.open ? { ...current, paired: true, status } : current)
+        setWifiStatus(status)
+        if (autoConnect?.target) {
+          setConnectIp(autoConnect.target)
+          onRecordSavedHistory?.({ type: 'connect', label: `Connected to ${autoConnect.target}` })
+        }
+        onRecordSavedHistory?.({ type: 'pair', label: `Paired with QR code via ${qrPairState.serviceName}` })
+      } catch (error) {
+        setQrPairState(current => current.open ? { ...current, status: `QR pairing check failed: ${error}` } : current)
+        timerId = window.setTimeout(pollQrPairing, 2000)
+      }
+    }
+
+    pollQrPairing()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [qrPairState.open, qrPairState.serviceName, qrPairState.password, qrPairState.paired, onRecordSavedHistory])
+
+  useEffect(() => {
+    return () => {
+      if (qrPairState.qrDataUrl) {
+        URL.revokeObjectURL?.(qrPairState.qrDataUrl)
+      }
+    }
+  }, [qrPairState.qrDataUrl])
 
   if (platform === 'android') {
     return <AndroidDeviceHome device={selected} props={props} loading={loading} onOpenPanel={onOpenPanel} />
   }
 
   return (
+    <>
     <div className="devices-panel">
       <div className="devices-list">
         {/* SAVED DEVICES */}
@@ -9164,6 +9403,7 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
                     onChange={e => setPairCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && wifiPair()}
                     style={{ ...inputStyle, width: 110, flexShrink: 0 }} />
                   <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={wifiPair}>Pair</button>
+                  <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={openQrPairModal}>QR Pair</button>
                 </div>
               </div>
               {/* Test ADB Connection */}
@@ -9221,6 +9461,82 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
           savedDevices={savedDevices} onSaveDevice={onSaveDevice} />
       </div>
     </div>
+    {qrPairState.open && (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.56)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          zIndex: 1000,
+        }}
+        onClick={closeQrPairModal}
+      >
+        <div
+          style={{
+            width: 'min(520px, 100%)',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: '0 24px 80px rgba(0,0,0,0.4)',
+            padding: 20,
+          }}
+          onClick={event => event.stopPropagation()}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+                Pair with QR Code
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                On the phone, open <strong>Wireless debugging</strong>, choose <strong>Pair device with QR code</strong>, then scan this code.
+              </div>
+            </div>
+            <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }} onClick={closeQrPairModal}>
+              Close
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' }}>
+            <div style={{
+              background: '#101014',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <img src={qrPairState.qrDataUrl} alt="ADB pairing QR code" style={{ width: '100%', maxWidth: 280, borderRadius: 12, display: 'block' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                Session
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 12 }}>
+                Toolkit generated a temporary ADB QR pairing session and is waiting for the phone to request it over mDNS.
+              </div>
+              <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Service Name</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono','Courier New',monospace", wordBreak: 'break-all' }}>{qrPairState.serviceName}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Shared Secret</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono','Courier New',monospace", wordBreak: 'break-all' }}>{qrPairState.password}</div>
+                </div>
+              </div>
+              <pre style={{ margin: 0, minHeight: 140, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                {qrPairState.status}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -12521,6 +12837,136 @@ async function restoreToolkitBackup({ serial, backup }) {
   }
 }
 
+function parseContentQueryRows(text) {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('Row:'))
+    .map(line => {
+      const body = line.replace(/^Row:\s*\d+\s*/, '')
+      const matches = [...body.matchAll(/([A-Za-z0-9_]+)=/g)]
+      const row = {}
+      matches.forEach((match, index) => {
+        const key = match[1]
+        const valueStart = match.index + match[0].length
+        const valueEnd = index + 1 < matches.length ? matches[index + 1].index : body.length
+        let value = body.slice(valueStart, valueEnd).replace(/^,\s*/, '').replace(/,\s*$/, '').trim()
+        if (value === 'NULL') value = null
+        row[key] = value
+      })
+      return row
+    })
+}
+
+function buildContentInsertArgs(uri, row, fieldSpecs) {
+  const args = ['shell', 'content', 'insert', '--uri', uri]
+  fieldSpecs.forEach(spec => {
+    const value = row[spec.key]
+    if (value == null || value === '') return
+    const type = spec.type === 'number'
+      ? (/^-?\d+$/.test(String(value)) ? 'l' : null)
+      : 's'
+    if (!type) return
+    args.push('--bind', `${spec.key}:${type}:${String(value)}`)
+  })
+  return args
+}
+
+async function backupNoRootDataset({ serial, kind, label, adbArgs, parse = true }) {
+  const res = await invoke('run_adb', { args: ['-s', serial, ...adbArgs] })
+  const text = [res.stdout, res.stderr].filter(Boolean).join('\n').trim()
+  if (!text) throw new Error('No data returned from the device')
+
+  const dl = await downloadDir()
+  const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups', 'No-Root Data')
+  await mkdir(root, { recursive: true })
+  const safeSerial = (serial || 'device').replace(/[^\w.-]+/g, '_')
+  const file = await pathJoin(root, `${kind}_${safeSerial}_${Date.now()}.json`)
+  const payload = {
+    kind,
+    label,
+    createdAt: new Date().toISOString(),
+    serial,
+    rows: parse ? parseContentQueryRows(text) : [],
+    raw: text,
+  }
+  await writeTextFile(file, JSON.stringify(payload, null, 2))
+  return { file, payload }
+}
+
+async function restoreSmsRows(serial, rows) {
+  const fieldSpecs = [
+    { key: 'address', type: 'string' },
+    { key: 'body', type: 'string' },
+    { key: 'date', type: 'number' },
+    { key: 'type', type: 'number' },
+    { key: 'read', type: 'number' },
+    { key: 'seen', type: 'number' },
+    { key: 'service_center', type: 'string' },
+    { key: 'subject', type: 'string' },
+    { key: 'status', type: 'number' },
+  ]
+  let restored = 0
+  for (const row of rows) {
+    const args = buildContentInsertArgs('content://sms', row, fieldSpecs)
+    if (args.length <= 4) continue
+    const res = await invoke('run_adb', { args: ['-s', serial, ...args] })
+    if (!adbCommandWorked(res)) throw new Error(res.stderr?.trim() || 'SMS restore failed')
+    restored += 1
+  }
+  return restored
+}
+
+async function restoreCallLogRows(serial, rows) {
+  const fieldSpecs = [
+    { key: 'number', type: 'string' },
+    { key: 'date', type: 'number' },
+    { key: 'duration', type: 'number' },
+    { key: 'type', type: 'number' },
+    { key: 'new', type: 'number' },
+    { key: 'name', type: 'string' },
+    { key: 'numbertype', type: 'number' },
+    { key: 'numberlabel', type: 'string' },
+  ]
+  let restored = 0
+  for (const row of rows) {
+    const args = buildContentInsertArgs('content://call_log/calls', row, fieldSpecs)
+    if (args.length <= 4) continue
+    const res = await invoke('run_adb', { args: ['-s', serial, ...args] })
+    if (!adbCommandWorked(res)) throw new Error(res.stderr?.trim() || 'Call log restore failed')
+    restored += 1
+  }
+  return restored
+}
+
+async function restoreContactRows(serial, rows) {
+  let restored = 0
+  for (const row of rows) {
+    const name = row.display_name || row.display_name_primary || row.name
+    if (!name) continue
+    const createRaw = await invoke('run_adb', {
+      args: ['-s', serial, 'shell', 'content', 'insert', '--uri', 'content://com.android.contacts/raw_contacts'],
+    })
+    const rawOutput = [createRaw.stdout, createRaw.stderr].filter(Boolean).join('\n').trim()
+    const rawIdMatch = rawOutput.match(/\/(\d+)\s*$/)
+    if (!rawIdMatch) throw new Error(rawOutput || 'Failed to create contact shell record')
+    const rawContactId = rawIdMatch[1]
+    const insertName = await invoke('run_adb', {
+      args: [
+        '-s', serial,
+        'shell', 'content', 'insert',
+        '--uri', 'content://com.android.contacts/data',
+        '--bind', `raw_contact_id:l:${rawContactId}`,
+        '--bind', 'mimetype:s:vnd.android.cursor.item/name',
+        '--bind', `data1:s:${name}`,
+      ],
+    })
+    if (!adbCommandWorked(insertName)) throw new Error(insertName.stderr?.trim() || 'Contact restore failed')
+    restored += 1
+  }
+  return restored
+}
+
 function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
   const [busy, setBusy] = useState(null) // 'launch' | 'uninstall' | 'clear' | 'backup'
 
@@ -12869,6 +13315,7 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
   const [backupsRoot, setBackupsRoot] = useState(null)
   const [restoring, setRestoring] = useState({}) // pkg → true
   const [exporting, setExporting] = useState({})
+  const [restoringNoRoot, setRestoringNoRoot] = useState({})
   const [packages, setPackages]   = useState([])
   const [packagesLoading, setPackagesLoading] = useState(false)
   const [backupTarget, setBackupTarget] = useState('')
@@ -12992,27 +13439,57 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
     await invoke('open_in_finder', { path })
   }
 
-  async function exportNoRootData(key, label, adbArgs, ext = 'txt') {
+  async function backupNoRootDataCard(key, label, adbArgs, options = {}) {
     if (noDevice) {
-      addToast('Connect a device to export data', 'error')
+      addToast('Connect a device to back up data', 'error')
       return
     }
     setExporting(prev => ({ ...prev, [key]: true }))
     try {
-      const res = await invoke('run_adb', { args: ['-s', serial, ...adbArgs] })
-      const text = [res.stdout, res.stderr].filter(Boolean).join('\n').trim()
-      if (!text) throw new Error('No data returned from the device')
-      const dl = await downloadDir()
-      const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups', 'No-Root Data')
-      await mkdir(root, { recursive: true })
-      const safeSerial = (serial || 'device').replace(/[^\w.-]+/g, '_')
-      const file = await pathJoin(root, `${key}_${safeSerial}_${Date.now()}.${ext}`)
-      await writeTextFile(file, text)
-      addToast(`${label} exported`, 'success')
+      await backupNoRootDataset({
+        serial,
+        kind: key,
+        label,
+        adbArgs,
+        parse: options.parse !== false,
+      })
+      addToast(`${label} backed up`, 'success')
     } catch (e) {
-      addToast(`${label} export failed: ${String(e).slice(0, 90)}`, 'error')
+      addToast(`${label} backup failed: ${String(e).slice(0, 90)}`, 'error')
     }
     setExporting(prev => { const next = { ...prev }; delete next[key]; return next })
+  }
+
+  async function restoreNoRootDataCard(key, label) {
+    if (noDevice) {
+      addToast('Connect a device to restore data', 'error')
+      return
+    }
+    if (key === 'device_info') {
+      addToast('Device info backups are reference snapshots and cannot be restored to Android.', 'error')
+      return
+    }
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (!picked || Array.isArray(picked)) return
+    setRestoringNoRoot(prev => ({ ...prev, [key]: true }))
+    try {
+      const text = await readTextFile(picked)
+      const payload = JSON.parse(text)
+      if (payload?.kind !== key || !Array.isArray(payload?.rows)) {
+        throw new Error(`This file is not a ${label} backup.`)
+      }
+      let restored = 0
+      if (key === 'sms') restored = await restoreSmsRows(serial, payload.rows)
+      if (key === 'calls') restored = await restoreCallLogRows(serial, payload.rows)
+      if (key === 'contacts') restored = await restoreContactRows(serial, payload.rows)
+      addToast(`${label} restored${restored ? ` (${restored} items)` : ''}`, 'success')
+    } catch (e) {
+      addToast(`${label} restore failed: ${String(e).slice(0, 100)}`, 'error')
+    }
+    setRestoringNoRoot(prev => { const next = { ...prev }; delete next[key]; return next })
   }
 
   return (
@@ -13070,7 +13547,7 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
             Backup & Restore
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Create and restore toolkit-managed app backups from one place. App backups include APK splits, OBB files, and shared app folders that ADB can access, alongside no-root exports like SMS, call logs, contacts, and device info.
+            Create and restore toolkit-managed app backups from one place. App backups include APK splits, OBB files, and shared app folders that ADB can access, alongside no-root backups for SMS, call logs, contacts, and device info snapshots.
           </div>
         </div>
 
@@ -13139,29 +13616,44 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
 
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px', marginBottom: 18 }}>
           <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
-            No-Root Data Export
+            No-Root Data Backup
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
-            These exports use ADB-accessible content providers and system services. They do not require root, but device firmware can still limit what is exposed.
+            These backups use ADB-accessible content providers and system services. They do not require root, but device firmware can still limit what is exposed. SMS and call logs can be restored from the saved JSON backups. Contacts restore uses a basic name-only import path.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
             {[
-              { key: 'sms', label: 'Export SMS', desc: 'Saves SMS and MMS metadata from the device message database.', args: ['shell', 'content', 'query', '--uri', 'content://sms'] },
-              { key: 'calls', label: 'Export Call Log', desc: 'Saves the call history that Android exposes over ADB.', args: ['shell', 'content', 'query', '--uri', 'content://call_log/calls'] },
-              { key: 'contacts', label: 'Export Contacts', desc: 'Exports the visible contacts list from the contacts provider.', args: ['shell', 'content', 'query', '--uri', 'content://com.android.contacts/contacts'] },
-              { key: 'device_info', label: 'Export Device Info', desc: 'Saves device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo "\\n--- BATTERY ---" && dumpsys battery && echo "\\n--- STORAGE ---" && df -h'] },
+              { key: 'sms', label: 'SMS Backup', desc: 'Backs up SMS and MMS metadata from the device message database.', args: ['shell', 'content', 'query', '--uri', 'content://sms'] },
+              { key: 'calls', label: 'Call Log Backup', desc: 'Backs up the call history that Android exposes over ADB.', args: ['shell', 'content', 'query', '--uri', 'content://call_log/calls'] },
+              { key: 'contacts', label: 'Contacts Backup', desc: 'Backs up visible contact entries for a basic restore path.', args: ['shell', 'content', 'query', '--uri', 'content://com.android.contacts/contacts'] },
+              { key: 'device_info', label: 'Device Info Backup', desc: 'Backs up device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo "\\n--- BATTERY ---" && dumpsys battery && echo "\\n--- STORAGE ---" && df -h'], restoreable: false, parse: false },
             ].map(card => (
               <div key={card.key} style={{ padding: '12px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
                 <div style={{ fontSize: 13, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 5 }}>{card.label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>{card.desc}</div>
-                <button
-                  className="btn-ghost"
-                  style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
-                  disabled={noDevice || !!exporting[card.key]}
-                  onClick={() => exportNoRootData(card.key, card.label, card.args)}
-                >
-                  {exporting[card.key] ? 'Exporting…' : card.label}
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn-ghost"
+                    style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
+                    disabled={noDevice || !!exporting[card.key]}
+                    onClick={() => backupNoRootDataCard(card.key, card.label, card.args, { parse: card.parse })}
+                  >
+                    {exporting[card.key] ? 'Backing Up…' : `Back Up ${card.key === 'device_info' ? 'Snapshot' : ''}`.trim()}
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
+                    disabled={noDevice || !!restoringNoRoot[card.key] || card.restoreable === false}
+                    onClick={() => restoreNoRootDataCard(card.key, card.label)}
+                  >
+                    {restoringNoRoot[card.key] ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+                {card.restoreable === false && (
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 8 }}>
+                    Device info snapshots are backup-only and cannot be restored onto Android.
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -663,6 +663,28 @@ async fn run_adb_sidecar(
     Ok(serde_json::json!({ "ok": output.status.success(), "stdout": stdout, "stderr": stderr }))
 }
 
+#[cfg(not(target_os = "android"))]
+async fn warm_adb_sidecar(app: &tauri::AppHandle, serial: &str) -> Result<(), String> {
+    let _ = app
+        .shell()
+        .sidecar("adb")
+        .map_err(|e| e.to_string())?
+        .args(["start-server"])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app
+        .shell()
+        .sidecar("adb")
+        .map_err(|e| e.to_string())?
+        .args(["-s", serial, "get-state"])
+        .output()
+        .await;
+
+    Ok(())
+}
+
 #[cfg(target_os = "android")]
 fn is_android_local_serial(serial: &str) -> bool {
     let local = android_local_serial();
@@ -1659,6 +1681,7 @@ async fn capture_screen_frame(
 
     #[cfg(not(target_os = "android"))]
     {
+        let _ = warm_adb_sidecar(&app, &serial).await;
         let output = app
             .shell()
             .sidecar("adb")
@@ -1854,6 +1877,8 @@ async fn start_live_stream(
         if let Some(child) = state.0.lock().unwrap().take() {
             let _ = child.kill();
         }
+
+        let _ = warm_adb_sidecar(&app, &serial).await;
 
         let (mut rx, child) = app
             .shell()
@@ -2214,7 +2239,7 @@ pub fn run() {
                                 let _ = handle.emit("devices:changed", &parse_devices(&stdout));
                             }
                         }
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 });
             }
@@ -2226,7 +2251,7 @@ pub fn run() {
                         let state = handle.state::<AndroidAdbState>();
                         let _ =
                             handle.emit("devices:changed", android_list_devices(&handle, &state));
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 });
             }
