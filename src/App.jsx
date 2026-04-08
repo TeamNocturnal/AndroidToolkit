@@ -8,6 +8,7 @@ import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { readDir, readTextFile, writeTextFile, mkdir, remove, exists, stat as fsStat, copyFile } from '@tauri-apps/plugin-fs'
 import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
 import QRCode from 'qrcode'
+import teamNocturnalRoundLogo from './assets/team-nocturnal-round-logo.jpg'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
@@ -16,12 +17,24 @@ const DISPLAY_VERSION = import.meta.env.VITE_APP_BUILD_VERSION || CURRENT_VERSIO
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases?per_page=20'
 const GITHUB_RELEASES_PAGE = 'https://github.com/TeamNocturnal/AndroidToolkit/releases'
 const UPDATE_CHANNEL_STORAGE_KEY = 'nocturnal_update_channel'
+const STYLE_PRESET_STORAGE_KEY = 'nocturnal_style_preset'
+const STYLE_PRESETS = [
+  { id: 'modern', label: 'Modern' },
+  { id: 'team-nocturnal', label: 'Team Nocturnal' },
+  { id: 'classic', label: 'Classic' },
+]
 const DEFAULT_UPDATE_CHANNEL = 'beta'
 const UPDATE_CHANNELS = [
   { id: 'stable', label: 'Stable' },
   { id: 'beta', label: 'Beta' },
   { id: 'nightly', label: 'Nightly' },
 ]
+
+function normalizeStylePreset(value) {
+  if (value === 'tahoe') return 'modern'
+  if (STYLE_PRESETS.some(option => option.id === value)) return value
+  return 'modern'
+}
 
 function normalizeVersionTag(version) {
   return String(version || '').trim().replace(/^v/i, '')
@@ -657,7 +670,7 @@ const NAV_SECTIONS = [
     icon: '⚙️',
     label: 'DEVICE TOOLS',
     items: [
-      { id: 'advanced', icon: '⚙️', label: 'Device Tools', badge: 'PRO' },
+      { id: 'advanced', icon: '⚙️', label: 'Device Tools' },
     ],
   },
   {
@@ -1546,8 +1559,8 @@ function StatRow({ label, value }) {
 
 function Bar({ pct, color }) {
   return (
-    <div style={{ background: 'var(--bg-elevated)', borderRadius: 4, height: 5, overflow: 'hidden' }}>
-      <div style={{ width: `${Math.min(pct, 100)}%`, background: color, height: '100%', borderRadius: 4, transition: 'width 0.4s' }} />
+    <div className="utility-bar">
+      <div className="utility-bar-fill" style={{ width: `${Math.min(pct, 100)}%`, ['--bar-color']: color }} />
     </div>
   )
 }
@@ -1560,6 +1573,14 @@ function SectionLabel({ children }) {
       textTransform: 'uppercase', marginBottom: 10,
     }}>
       {children}
+    </div>
+  )
+}
+
+function AppBrandMark({ className = '' }) {
+  return (
+    <div className={`app-brand-mark${className ? ` ${className}` : ''}`}>
+      <img src={teamNocturnalRoundLogo} alt="Team Nocturnal" className="app-brand-mark-image" />
     </div>
   )
 }
@@ -1670,7 +1691,7 @@ function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device 
 
 // ── Titlebar ──────────────────────────────────────────────────────────────────
 
-function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
+function Titlebar({ devices, scanning, onScan, theme, onTheme, platform, stylePreset, onStylePreset, updateNotice }) {
   const connected = devices.filter(d => d.status === 'device')
   const hasDevice = connected.length > 0
   const connectedLabel = hasDevice ? `${connected.length} connected` : 'No device connected'
@@ -1695,27 +1716,104 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
     )
   }
 
+  if (stylePreset === 'classic') {
+    return (
+      <div className="titlebar classic-titlebar" data-tauri-drag-region>
+        <div className="titlebar-left">
+          <span className="classic-titlebar-label">Android Toolkit v{DISPLAY_VERSION}</span>
+        </div>
+
+        <div className="titlebar-center">
+          <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
+          <span className="classic-titlebar-status">
+            {hasDevice ? connectedLabel : 'No device connected'}
+          </span>
+        </div>
+
+        <div className="titlebar-right">
+          <div className="titlebar-control-cluster classic-titlebar-toggle">
+            <div className="theme-segmented-control">
+              {[['dark', '🌙'], ['light', '☀️'], ['system', '💻']].map(([val, icon]) => (
+                <button
+                  key={val}
+                  className={`theme-segment-button${theme === val ? ' active' : ''}`}
+                  onClick={() => onTheme(val)}
+                  title={val.charAt(0).toUpperCase() + val.slice(1)}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="titlebar-control-cluster classic-style-picker-cluster">
+            <label className="titlebar-style-picker-shell">
+              <span className="titlebar-style-picker-label">Style</span>
+              <select
+                className="titlebar-style-picker"
+                value={stylePreset}
+                onChange={event => onStylePreset(event.target.value)}
+              >
+                {STYLE_PRESETS.map(option => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <button className="btn-ghost titlebar-scan-button classic-scan-button" onClick={onScan}>
+            {scanning ? 'Scanning…' : 'Scan'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="titlebar" data-tauri-drag-region>
       <div className="titlebar-left">
-        <div className="titlebar-app-mark" aria-hidden="true">TN</div>
-        <div className="titlebar-app-meta">
-          <div className="titlebar-app-name-row">
-            <span className="titlebar-app-name">Android Toolkit</span>
+        {platform === 'macos' ? (
+          <div className="titlebar-trafficlight-space" aria-hidden="true" />
+        ) : (
+          <div className="titlebar-window-well titlebar-window-well-desktop">
+            <span className="titlebar-window-label">Android Toolkit</span>
           </div>
-          <div className="titlebar-app-subtitle">Beta build {DISPLAY_VERSION}</div>
-        </div>
+        )}
       </div>
 
       <div className="titlebar-center">
-        <div className="titlebar-status-pill">
-          <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
-          <span className="titlebar-status-label">{connectedLabel}</span>
-        </div>
+        {updateNotice ? (
+          <div className="titlebar-update-pill">
+            <span className="titlebar-update-copy">{updateNotice.text}</span>
+            <button className="titlebar-update-link" onClick={updateNotice.onOpen}>Open</button>
+            <button className="titlebar-update-dismiss" onClick={updateNotice.onDismiss} aria-label="Dismiss update notice">×</button>
+          </div>
+        ) : (
+          <div className="titlebar-center-spacer" />
+        )}
       </div>
 
       <div className="titlebar-right">
-        <div className="theme-segmented-control">
+        <div className="titlebar-control-cluster">
+          <div className="titlebar-status-chip">
+            <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
+            <span>{connectedLabel}</span>
+          </div>
+        </div>
+        <div className="titlebar-control-cluster">
+          <label className="titlebar-style-picker-shell">
+            <span className="titlebar-style-picker-label">Style</span>
+            <select
+              className="titlebar-style-picker"
+              value={stylePreset}
+              onChange={event => onStylePreset(event.target.value)}
+            >
+              {STYLE_PRESETS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="titlebar-control-cluster">
+          <div className="theme-segmented-control">
           {[['dark', '🌙'], ['light', '☀️'], ['system', '💻']].map(([val, icon]) => (
             <button
               key={val}
@@ -1726,13 +1824,16 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
               {icon}
             </button>
           ))}
+          </div>
         </div>
-        <button
-          className="btn-ghost titlebar-scan-button"
-          onClick={onScan}
-        >
-          {scanning ? 'Scanning…' : 'Scan'}
-        </button>
+        <div className="titlebar-control-cluster titlebar-scan-cluster">
+          <button
+            className="btn-ghost titlebar-scan-button"
+            onClick={onScan}
+          >
+            {scanning ? 'Scanning…' : 'Scan'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -13809,6 +13910,7 @@ function MainApp() {
   const [activePanel, setActivePanel] = useState('getting-started')
   const [scanning, setScanning]   = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'system')
+  const [stylePreset, setStylePreset] = useState(() => normalizeStylePreset(localStorage.getItem(STYLE_PRESET_STORAGE_KEY)))
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem('nt_welcomed'))
   const [sharedInstallQueue, setSharedInstallQueue] = useState([])
   const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
@@ -13929,6 +14031,12 @@ function MainApp() {
       return () => mq.removeEventListener('change', handler)
     }
   }, [theme])
+
+  useEffect(() => {
+    const normalized = normalizeStylePreset(stylePreset)
+    document.documentElement.setAttribute('data-style', normalized)
+    localStorage.setItem(STYLE_PRESET_STORAGE_KEY, normalized)
+  }, [stylePreset])
 
   // Detect host platform so the UI can adapt
   useEffect(() => {
@@ -14131,30 +14239,24 @@ function MainApp() {
       : `A new stable build of Android Toolkit is available${updateState.latestVersion ? ` — v${updateState.latestVersion}` : ''}`
 
   return (
-    <div className={`app-layout ${platform === 'android' ? 'platform-android' : 'platform-desktop'}`}>
+    <div className={`app-layout ${platform === 'android' ? 'platform-android' : 'platform-desktop'} platform-${platform}`}>
       <div className="app-backdrop" aria-hidden="true" />
       {showWelcome && <WelcomeScreen onDismiss={() => setShowWelcome(false)} />}
-      <Titlebar devices={devices} scanning={scanning} onScan={scan} theme={theme} onTheme={setTheme} platform={platform} />
-      {showUpdateBanner && (
-        <div className="app-update-banner">
-          <span className="app-update-banner-copy">
-            {updateBannerText}
-          </span>
-          <button
-            className="app-update-banner-link"
-            onClick={() => openUrl(updateState.releaseUrl || GITHUB_RELEASES_PAGE)}
-          >
-            Download
-          </button>
-          <button
-            className="app-update-banner-dismiss"
-            onClick={dismissUpdateBanner}
-            aria-label="Dismiss update banner"
-          >
-            ×
-          </button>
-        </div>
-      )}
+      <Titlebar
+        devices={devices}
+        scanning={scanning}
+        onScan={scan}
+        theme={theme}
+        onTheme={setTheme}
+        platform={platform}
+        stylePreset={stylePreset}
+        onStylePreset={setStylePreset}
+        updateNotice={showUpdateBanner ? {
+          text: updateBannerText,
+          onOpen: () => openUrl(updateState.releaseUrl || GITHUB_RELEASES_PAGE),
+          onDismiss: dismissUpdateBanner,
+        } : null}
+      />
       <div className="body-layout">
 
         {/* Sidebar — desktop only */}
@@ -14162,19 +14264,20 @@ function MainApp() {
           <div className="sidebar">
             <div className="sidebar-brand-panel">
               <div className="sidebar-brand-row">
-                <div className="sidebar-brand-mark">TN</div>
+                <AppBrandMark className="sidebar-brand-mark" />
                 <div className="sidebar-brand-copy">
                   <div className="sidebar-brand-title">Android Toolkit</div>
-                  <div className="sidebar-brand-subtitle">Tahoe beta utility build</div>
+                  <div className="sidebar-brand-subtitle">{STYLE_PRESETS.find(option => option.id === stylePreset)?.label || 'Modern'} build · v{DISPLAY_VERSION}</div>
                 </div>
               </div>
             </div>
             <div className="sidebar-nav-scroll">
               {desktopNavSections.map(section => (
-                <div key={section.label} className="sidebar-section-group">
+                <div key={section.label} className={`sidebar-section-group${desktopNavOpen[section.label] ? ' open' : ''}`}>
                   {!section.standalone && (
                     <div
-                      className="sidebar-section-label"
+                      className={`sidebar-section-label${desktopNavOpen[section.label] ? ' open' : ''}`}
+                      aria-expanded={desktopNavOpen[section.label] ? 'true' : 'false'}
                       onClick={() => setDesktopNavOpen(prev => ({ ...prev, [section.label]: !prev[section.label] }))}
                     >
                       <span className="sidebar-section-label-copy">
