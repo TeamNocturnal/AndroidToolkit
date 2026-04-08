@@ -11,13 +11,15 @@ import QRCode from 'qrcode'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.4'
+const CURRENT_VERSION = '3.0.0-beta'
 const DISPLAY_VERSION = import.meta.env.VITE_APP_BUILD_VERSION || CURRENT_VERSION
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases?per_page=20'
 const GITHUB_RELEASES_PAGE = 'https://github.com/TeamNocturnal/AndroidToolkit/releases'
 const UPDATE_CHANNEL_STORAGE_KEY = 'nocturnal_update_channel'
+const DEFAULT_UPDATE_CHANNEL = 'beta'
 const UPDATE_CHANNELS = [
   { id: 'stable', label: 'Stable' },
+  { id: 'beta', label: 'Beta' },
   { id: 'nightly', label: 'Nightly' },
 ]
 
@@ -26,24 +28,59 @@ function normalizeVersionTag(version) {
 }
 
 function currentNightlyTag() {
-  const match = String(DISPLAY_VERSION).match(/^(\d+\.\d+\.\d+)_nightly-(\d{8}-\d{6})$/i)
-  return match ? `v${match[1]}-nightly-${match[2]}` : ''
+  const match = String(DISPLAY_VERSION).match(/^(.+?)_nightly-(\d{8}-\d{6})$/i)
+  return match ? `v${normalizeVersionTag(match[1]).replace(/_/g, '-')}-nightly-${match[2]}` : ''
+}
+
+function parseComparableVersion(value) {
+  const normalized = normalizeVersionTag(value).replace(/_nightly-/gi, '-nightly-')
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:[-.]?([0-9A-Za-z.-]+))?$/)
+  if (!match) return null
+
+  const prerelease = String(match[4] || '')
+    .split(/[.-]/)
+    .filter(Boolean)
+    .map(token => (/^\d+$/.test(token) ? Number(token) : token.toLowerCase()))
+
+  return {
+    major: Number(match[1] || 0),
+    minor: Number(match[2] || 0),
+    patch: Number(match[3] || 0),
+    prerelease,
+  }
 }
 
 function compareVersions(a, b) {
-  const left = normalizeVersionTag(a).split('.').map(part => parseInt(part, 10) || 0)
-  const right = normalizeVersionTag(b).split('.').map(part => parseInt(part, 10) || 0)
-  const length = Math.max(left.length, right.length)
-  for (let i = 0; i < length; i += 1) {
-    const delta = (left[i] || 0) - (right[i] || 0)
+  const left = parseComparableVersion(a)
+  const right = parseComparableVersion(b)
+  if (!left || !right) return normalizeVersionTag(a).localeCompare(normalizeVersionTag(b))
+
+  for (const key of ['major', 'minor', 'patch']) {
+    const delta = left[key] - right[key]
     if (delta !== 0) return delta
   }
-  return 0
-}
 
-function extractBaseVersion(value) {
-  const match = String(value || '').match(/(\d+\.\d+\.\d+)/)
-  return match?.[1] || ''
+  if (!left.prerelease.length && !right.prerelease.length) return 0
+  if (!left.prerelease.length) return 1
+  if (!right.prerelease.length) return -1
+
+  const length = Math.max(left.prerelease.length, right.prerelease.length)
+  for (let i = 0; i < length; i += 1) {
+    const l = left.prerelease[i]
+    const r = right.prerelease[i]
+    if (l === undefined) return -1
+    if (r === undefined) return 1
+    if (typeof l === 'number' && typeof r === 'number') {
+      if (l !== r) return l - r
+      continue
+    }
+    if (typeof l === 'number') return -1
+    if (typeof r === 'number') return 1
+    const delta = String(l).localeCompare(String(r))
+    if (delta !== 0) return delta
+  }
+
+  return 0
 }
 
 function extractReleaseVersion(release) {
@@ -60,16 +97,33 @@ function extractReleaseVersion(release) {
   return ''
 }
 
+function normalizeUpdateChannel(value) {
+  return UPDATE_CHANNELS.some(channel => channel.id === value) ? value : DEFAULT_UPDATE_CHANNEL
+}
+
+function isNightlyRelease(release) {
+  return !release?.draft && (
+    /^nightly-/i.test(release?.tag_name || '')
+    || /nightly/i.test(release?.name || '')
+    || /nightly/i.test(extractReleaseVersion(release))
+  )
+}
+
+function isBetaRelease(release) {
+  const releaseVersion = extractReleaseVersion(release)
+  return !release?.draft
+    && !!release?.prerelease
+    && !isNightlyRelease(release)
+    && /beta/i.test(`${release?.tag_name || ''} ${release?.name || ''} ${releaseVersion}`)
+}
+
 function pickReleaseForChannel(releases, channel) {
   if (!Array.isArray(releases)) return null
   if (channel === 'nightly') {
-    return releases.find(release => (
-      !release?.draft
-      && (
-        /^nightly-/i.test(release?.tag_name || '')
-        || /nightly/i.test(release?.name || '')
-      )
-    )) || null
+    return releases.find(release => isNightlyRelease(release)) || null
+  }
+  if (channel === 'beta') {
+    return releases.find(release => isBetaRelease(release)) || null
   }
   return releases.find(release => (
     !release?.draft
@@ -87,8 +141,7 @@ function isUpdateAvailableForChannel(release, channel) {
     if (installedNightlyTag) {
       return normalizeVersionTag(release?.tag_name) !== normalizeVersionTag(installedNightlyTag)
     }
-    const releaseBaseVersion = extractBaseVersion(releaseVersion || release?.tag_name || release?.name || '')
-    return compareVersions(releaseBaseVersion || CURRENT_VERSION, CURRENT_VERSION) > 0
+    return true
   }
   return versionDelta > 0
 }
@@ -118,13 +171,21 @@ function formatUpdateStatus(updateState) {
   if (updateState.status === 'error') return updateState.error || 'Update check failed'
   if (!updateState.checkedAt) return 'Checks GitHub releases automatically'
   if (updateState.available) {
-    return updateState.channel === 'nightly'
-      ? `Nightly available${updateState.releaseTag ? ` · ${updateState.releaseTag}` : ''}`
+    if (updateState.channel === 'nightly') {
+      return `Nightly available${updateState.releaseTag ? ` · ${updateState.releaseTag}` : ''}`
+    }
+    if (updateState.channel === 'beta') {
+      return updateState.latestVersion
+        ? `Beta available · v${updateState.latestVersion}`
+        : 'Beta update available'
+    }
+    return updateState.latestVersion
+      ? `Stable available · v${updateState.latestVersion}`
       : 'Update available'
   }
-  return updateState.channel === 'nightly'
-    ? 'Nightly channel is up to date'
-    : 'Stable channel is up to date'
+  if (updateState.channel === 'nightly') return 'Nightly channel is up to date'
+  if (updateState.channel === 'beta') return 'Beta channel is up to date'
+  return 'Stable channel is up to date'
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -1612,16 +1673,17 @@ function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device 
 function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
   const connected = devices.filter(d => d.status === 'device')
   const hasDevice = connected.length > 0
+  const connectedLabel = hasDevice ? `${connected.length} connected` : 'No device connected'
 
   if (platform === 'android') {
     return (
-      <div className="titlebar" style={{ justifyContent: 'space-between', gap: 12, padding: '0 16px', minHeight: 46, height: 46 }}>
+      <div className="titlebar titlebar-mobile" style={{ justifyContent: 'space-between', gap: 12, padding: '0 16px', minHeight: 46, height: 46 }}>
         <span style={{
           fontSize: 'var(--text-sm)', fontWeight: 'var(--font-bold)',
           color: 'var(--text-primary)', letterSpacing: '-0.01em',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          Android Toolkit
+          Android Toolkit Beta
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
@@ -1636,49 +1698,37 @@ function Titlebar({ devices, scanning, onScan, theme, onTheme, platform }) {
   return (
     <div className="titlebar" data-tauri-drag-region>
       <div className="titlebar-left">
-        <span style={{
-          fontSize: 'var(--text-sm)',
-          fontWeight: 'var(--font-bold)',
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.01em',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}>
-          Android Toolkit {DISPLAY_VERSION}
-        </span>
+        <div className="titlebar-app-mark" aria-hidden="true">TN</div>
+        <div className="titlebar-app-meta">
+          <div className="titlebar-app-name-row">
+            <span className="titlebar-app-name">Android Toolkit</span>
+          </div>
+          <div className="titlebar-app-subtitle">Beta build {DISPLAY_VERSION}</div>
+        </div>
       </div>
 
       <div className="titlebar-center">
-        <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: hasDevice ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
-          {hasDevice
-            ? `${connected.length} connected`
-            : 'No device connected'}
-        </span>
+        <div className="titlebar-status-pill">
+          <span className="status-dot" style={{ background: hasDevice ? 'var(--accent-green)' : 'var(--text-muted)' }} />
+          <span className="titlebar-status-label">{connectedLabel}</span>
+        </div>
       </div>
 
       <div className="titlebar-right">
-        <div style={{ display: 'flex', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 20, padding: 2, gap: 1 }}>
+        <div className="theme-segmented-control">
           {[['dark', '🌙'], ['light', '☀️'], ['system', '💻']].map(([val, icon]) => (
-            <button key={val} onClick={() => onTheme(val)} title={val.charAt(0).toUpperCase() + val.slice(1)} style={{
-              background: theme === val ? 'var(--accent)' : 'transparent',
-              border: 'none', borderRadius: 16, padding: '2px 7px',
-              fontSize: 11, cursor: 'pointer', lineHeight: 1.4,
-              color: theme === val ? '#fff' : 'var(--text-muted)',
-              transition: 'background 0.15s',
-            }}>{icon}</button>
+            <button
+              key={val}
+              className={`theme-segment-button${theme === val ? ' active' : ''}`}
+              onClick={() => onTheme(val)}
+              title={val.charAt(0).toUpperCase() + val.slice(1)}
+            >
+              {icon}
+            </button>
           ))}
         </div>
-        <span style={{
-          fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
-          letterSpacing: '0.06em', textTransform: 'uppercase',
-        }}>
-          Android
-        </span>
         <button
-          className="btn-ghost"
-          style={{ padding: '3px 10px', fontSize: 'var(--text-xs)' }}
+          className="btn-ghost titlebar-scan-button"
           onClick={onScan}
         >
           {scanning ? 'Scanning…' : 'Scan'}
@@ -1694,42 +1744,17 @@ function SidebarDeviceCard({ device, props, onPairDevice, currentVersion, update
   const updateButtonLabel = updateState.status === 'checking'
     ? 'Checking…'
     : updateState.available
-      ? 'Update Available'
+      ? 'Open Release'
       : 'Check for Updates'
 
   const updateSection = (
-    <div style={{
-      marginTop: 12,
-      paddingTop: 10,
-      borderTop: '1px solid var(--border-subtle)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{
-          fontSize: 10,
-          color: 'var(--text-muted)',
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          flex: 1,
-        }}>
-          Updates
-        </span>
+    <div className="sidebar-update-section">
+      <div className="sidebar-update-header">
+        <span className="sidebar-micro-label">Updates</span>
         <select
+          className="sidebar-channel-select"
           value={updateChannel}
           onChange={event => onUpdateChannelChange(event.target.value)}
-          style={{
-            width: 84,
-            background: 'var(--bg-elevated)',
-            color: 'var(--text-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            outline: 'none',
-          }}
         >
           {UPDATE_CHANNELS.map(option => (
             <option key={option.id} value={option.id}>{option.label}</option>
@@ -1737,53 +1762,32 @@ function SidebarDeviceCard({ device, props, onPairDevice, currentVersion, update
         </select>
       </div>
       <button
-        className="btn-ghost"
-        style={{
-          width: '100%',
-          padding: '6px 10px',
-          fontSize: 'var(--text-xs)',
-          color: updateState.available ? 'var(--accent-yellow)' : undefined,
-          borderColor: updateState.available ? 'rgba(245, 158, 11, 0.38)' : undefined,
-          background: updateState.available ? 'rgba(245, 158, 11, 0.08)' : undefined,
-        }}
+        className={`btn-ghost sidebar-update-button${updateState.available ? ' has-update' : ''}`}
         onClick={onUpdateAction}
         disabled={updateState.status === 'checking'}
       >
         {updateButtonLabel}
       </button>
-      <div style={{
-        fontSize: 10,
-        color: updateState.status === 'error'
-          ? 'var(--accent-red)'
-          : updateState.available
-            ? 'var(--accent-yellow)'
-            : 'var(--text-muted)',
-        textAlign: 'center',
-        lineHeight: 1.35,
-      }}>
+      <div className={`sidebar-update-status status-${updateState.status}${updateState.available ? ' has-update' : ''}`}>
         {formatUpdateStatus(updateState)}
       </div>
-      <div style={{
-        textAlign: 'center',
-        fontSize: 10,
-        color: 'var(--text-muted)',
-        letterSpacing: '0.04em',
-      }}>
-        v{currentVersion}
-      </div>
+      <div className="sidebar-build-chip">v{currentVersion}</div>
     </div>
   )
 
   if (!device) {
     return (
       <div className="sidebar-footer">
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
-          No device connected
-        </div>
-        <button className="btn-ghost" style={{ width: '100%', padding: '6px 10px', fontSize: 'var(--text-xs)' }}
+        <div className="sidebar-device-card empty">
+          <div className="sidebar-device-empty-state">
+            <div className="sidebar-device-heading">No device connected</div>
+            <div className="sidebar-device-caption">Pair over USB or wireless ADB to start working.</div>
+          </div>
+          <button className="btn-ghost sidebar-device-action"
           onClick={onPairDevice}>
-          Pair Device
-        </button>
+            Pair Device
+          </button>
+        </div>
         {updateSection}
       </div>
     )
@@ -1801,43 +1805,36 @@ function SidebarDeviceCard({ device, props, onPairDevice, currentVersion, update
 
   return (
     <div className="sidebar-footer">
-      <div style={{
-        fontSize: 'var(--text-xs)', fontWeight: 'var(--font-bold)',
-        color: 'var(--text-primary)', marginBottom: 2,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {device.model}
-      </div>
-      <div style={{
-        fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
-        fontFamily: 'monospace', marginBottom: 6,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {device.serial}
-      </div>
-      {android && (
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>
-          Android {android} · {device.transport}
+      <div className="sidebar-device-card">
+        <div className="sidebar-device-header">
+          <div className="sidebar-device-heading">{device.model}</div>
+          <div className="sidebar-device-transport">{device.transport}</div>
         </div>
-      )}
-      {battery != null && (
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 3 }}>
-            <span>Battery</span>
-            <span style={{ color: batteryColor }}>{battery}%</span>
+        <div className="sidebar-device-serial">{device.serial}</div>
+        {android && (
+          <div className="sidebar-device-caption">
+            Android {android}
           </div>
-          <Bar pct={battery} color={batteryColor} />
-        </div>
-      )}
-      {storage != null && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 3 }}>
-            <span>Storage</span>
-            <span style={{ color: storageColor }}>{storage.used_pct}%</span>
+        )}
+        {battery != null && (
+          <div className="sidebar-device-meter">
+            <div className="sidebar-device-meter-row">
+              <span>Battery</span>
+              <span style={{ color: batteryColor }}>{battery}%</span>
+            </div>
+            <Bar pct={battery} color={batteryColor} />
           </div>
-          <Bar pct={storage.used_pct} color={storageColor} />
-        </div>
-      )}
+        )}
+        {storage != null && (
+          <div className="sidebar-device-meter">
+            <div className="sidebar-device-meter-row">
+              <span>Storage</span>
+              <span style={{ color: storageColor }}>{storage.used_pct}%</span>
+            </div>
+            <Bar pct={storage.used_pct} color={storageColor} />
+          </div>
+        )}
+      </div>
       {updateSection}
     </div>
   )
@@ -13825,10 +13822,10 @@ function MainApp() {
   const [orientation, setOrientation] = useState('portrait')
   const androidHistoryRef = useRef({ ready: false, syncingPop: false, key: '' })
   const [showUpdateBanner, setShowUpdateBanner] = useState(false)
-  const [updateChannel, setUpdateChannel] = useState(() => localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY) || 'stable')
+  const [updateChannel, setUpdateChannel] = useState(() => normalizeUpdateChannel(localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY)))
   const [updateState, setUpdateState] = useState({
     status: 'idle',
-    channel: localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY) || 'stable',
+    channel: normalizeUpdateChannel(localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY)),
     available: false,
     checkedAt: 0,
     error: '',
@@ -14127,33 +14124,31 @@ function MainApp() {
     .find(i => i.id === activePanel)
   const isAndroidPortrait = platform === 'android' && orientation === 'portrait'
   const isAndroidLandscape = platform === 'android' && orientation === 'landscape'
+  const updateBannerText = updateState.channel === 'nightly'
+    ? `A nightly beta build of Android Toolkit is available${updateState.releaseTag ? ` — ${updateState.releaseTag}` : ''}`
+    : updateState.channel === 'beta'
+      ? `A newer beta build of Android Toolkit is available${updateState.latestVersion ? ` — v${updateState.latestVersion}` : ''}`
+      : `A new stable build of Android Toolkit is available${updateState.latestVersion ? ` — v${updateState.latestVersion}` : ''}`
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${platform === 'android' ? 'platform-android' : 'platform-desktop'}`}>
+      <div className="app-backdrop" aria-hidden="true" />
       {showWelcome && <WelcomeScreen onDismiss={() => setShowWelcome(false)} />}
       <Titlebar devices={devices} scanning={scanning} onScan={scan} theme={theme} onTheme={setTheme} platform={platform} />
       {showUpdateBanner && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '7px 16px',
-          background: 'var(--bg-elevated)',
-          borderBottom: '1px solid var(--border)',
-          fontSize: 12,
-        }}>
-          <span style={{ flex: 1, color: 'var(--text-primary)' }}>
-            {updateState.channel === 'nightly'
-              ? `A nightly build of Android Toolkit is available${updateState.releaseTag ? ` — ${updateState.releaseTag}` : ''}`
-              : `A new version of Android Toolkit is available — v${updateState.latestVersion}`}
+        <div className="app-update-banner">
+          <span className="app-update-banner-copy">
+            {updateBannerText}
           </span>
           <button
+            className="app-update-banner-link"
             onClick={() => openUrl(updateState.releaseUrl || GITHUB_RELEASES_PAGE)}
-            style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 600 }}
           >
             Download
           </button>
           <button
+            className="app-update-banner-dismiss"
             onClick={dismissUpdateBanner}
-            style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
             aria-label="Dismiss update banner"
           >
             ×
@@ -14165,35 +14160,42 @@ function MainApp() {
         {/* Sidebar — desktop only */}
         {platform !== 'android' && (
           <div className="sidebar">
+            <div className="sidebar-brand-panel">
+              <div className="sidebar-brand-row">
+                <div className="sidebar-brand-mark">TN</div>
+                <div className="sidebar-brand-copy">
+                  <div className="sidebar-brand-title">Android Toolkit</div>
+                  <div className="sidebar-brand-subtitle">Tahoe beta utility build</div>
+                </div>
+              </div>
+            </div>
             <div className="sidebar-nav-scroll">
               {desktopNavSections.map(section => (
-                <div key={section.label}>
+                <div key={section.label} className="sidebar-section-group">
                   {!section.standalone && (
                     <div
                       className="sidebar-section-label"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                       onClick={() => setDesktopNavOpen(prev => ({ ...prev, [section.label]: !prev[section.label] }))}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="sidebar-section-label-copy">
                         {section.icon && <span>{section.icon}</span>}
                         <span>{section.label}</span>
                       </span>
-                      <span style={{ fontSize: 9, color: 'var(--text-muted)', transform: desktopNavOpen[section.label] ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+                      <span className={`sidebar-section-caret${desktopNavOpen[section.label] ? ' open' : ''}`}>▶</span>
                     </div>
                   )}
                   {(section.standalone || desktopNavOpen[section.label]) && section.items.map(item => (
-                    <div
+                    <button
                       key={item.id}
                       className={`nav-item${activePanel === item.id ? ' active' : ''}`}
                       onClick={() => setActivePanel(item.id)}
-                      style={{ display: 'flex', alignItems: 'center' }}
                     >
-                      <span style={{ marginRight: 7 }}>{item.icon}</span>
-                      {item.label}
+                      <span className="nav-item-icon">{item.icon}</span>
+                      <span className="nav-item-label">{item.label}</span>
                       {item.badge && (
-                        <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 'var(--font-bold)', color: 'var(--accent)', background: 'rgba(168,85,247,0.15)', padding: '1px 5px', borderRadius: 3, letterSpacing: '0.04em' }}>{item.badge}</span>
+                        <span className="nav-item-badge">{item.badge}</span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               ))}

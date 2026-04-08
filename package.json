@@ -1,12 +1,13 @@
 {
   "name": "nocturnal-toolkit",
   "private": true,
-  "version": "2.0.4",
+  "version": "3.0.0-beta",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "build:linux": "bash ./scripts/build-linux.sh",
+    "build:mac:beta": "BUILD_FLAVOR=beta bash ./build-mac.sh",
     "build:mac": "bash ./build-mac.sh",
     "build:mac:nightly": "BUILD_FLAVOR=nightly bash ./build-mac.sh",
     "lint": "eslint .",
