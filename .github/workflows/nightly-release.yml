@@ -100,25 +100,23 @@ jobs:
               .filter(Boolean)
 
             const body = [
-              `## Android Toolkit v${version} nightly-${stamp}`,
+              `## Android Toolkit v${version}`,
               '',
-              'Custom nightly build created automatically from GitHub Actions.',
+              'I rolled this build with the latest fixes and improvements from the current branch.',
               '',
               '### Build Info',
               '',
-              `- Tag: \`${tag}\``,
-              '- Channel: `nightly`',
               `- Commit: \`${shortSha}\``,
               `- Built: ${publishedAt}`,
-              latestStableTag ? `- Base stable: \`${latestStableTag}\`` : null,
-              previousNightlyTag ? `- Previous nightly: \`${previousNightlyTag}\`` : null,
-              compareUrl ? `- Full changelog: ${compareUrl}` : null,
+              latestStableTag ? `- Base release: \`${latestStableTag}\`` : null,
+              previousNightlyTag ? `- Previous build: \`${previousNightlyTag}\`` : null,
+              compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousNightlyTag ? '### What Changed Since The Previous Nightly' : '### What Changed Since The Last Stable',
+              previousNightlyTag ? '### What I Changed Since The Previous Build' : '### What I Changed Since The Last Release',
               '',
               ...(commitLines.length > 0
                 ? commitLines
-                : [`- Nightly build published, but commit summaries could not be generated for this run${compareBase ? '.' : ' because no previous nightly or stable base tag was available.'}`]),
+                : [`- I published this build, but the commit summary list was not available for this run${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
               '',
               '### Install Notes',
               '',
@@ -126,9 +124,9 @@ jobs:
               '- Windows: use the `.exe` installer or `.msi` package.',
               '- Linux: install the native package for your distro when available. Debian-based systems can install the `.deb` with `sudo apt install ./Android-Toolkit_<version>_amd64.deb`.',
               '',
-              '### Download Links',
+              '### Downloads',
               '',
-              `- Stable releases: https://github.com/${owner}/${repo}/releases/latest`,
+              `- Latest release: https://github.com/${owner}/${repo}/releases/latest`,
               `- All releases: https://github.com/${owner}/${repo}/releases`,
             ].filter(Boolean).join('\n')
 

@@ -7,10 +7,11 @@ import { open as openDialog, confirm as dialogConfirm } from '@tauri-apps/plugin
 import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { readDir, readTextFile, writeTextFile, mkdir, remove, exists, stat as fsStat, copyFile } from '@tauri-apps/plugin-fs'
 import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
+import QRCode from 'qrcode'
 import './App.css'
 
 const ANDROID_APP_ID = 'com.teamnocturnal.toolkit'
-const CURRENT_VERSION = '2.0.3'
+const CURRENT_VERSION = '2.0.4'
 const DISPLAY_VERSION = import.meta.env.VITE_APP_BUILD_VERSION || CURRENT_VERSION
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/TeamNocturnal/AndroidToolkit/releases?per_page=20'
 const GITHUB_RELEASES_PAGE = 'https://github.com/TeamNocturnal/AndroidToolkit/releases'
@@ -38,6 +39,11 @@ function compareVersions(a, b) {
     if (delta !== 0) return delta
   }
   return 0
+}
+
+function extractBaseVersion(value) {
+  const match = String(value || '').match(/(\d+\.\d+\.\d+)/)
+  return match?.[1] || ''
 }
 
 function extractReleaseVersion(release) {
@@ -81,7 +87,8 @@ function isUpdateAvailableForChannel(release, channel) {
     if (installedNightlyTag) {
       return normalizeVersionTag(release?.tag_name) !== normalizeVersionTag(installedNightlyTag)
     }
-    return versionDelta > 0 || /^\s*v?\d+\.\d+\.\d+-nightly-/i.test(release?.tag_name || '')
+    const releaseBaseVersion = extractBaseVersion(releaseVersion || release?.tag_name || release?.name || '')
+    return compareVersions(releaseBaseVersion || CURRENT_VERSION, CURRENT_VERSION) > 0
   }
   return versionDelta > 0
 }
@@ -219,6 +226,29 @@ function decodeBase64Bytes(value) {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+function captureResultToImageUrl(result, fallbackMime = 'image/png') {
+  if (!result?.b64) return ''
+  const mime = String(result.mime || fallbackMime || 'image/png').trim() || 'image/png'
+  const bytes = decodeBase64Bytes(String(result.b64).trim())
+  const blob = new Blob([bytes], { type: mime })
+  return URL.createObjectURL(blob)
+}
+
+function escapeWifiQrValue(value) {
+  return String(value || '').replace(/([\\;,:"])/g, '\\$1')
+}
+
+function createAdbQrPayload(serviceName, password) {
+  return `WIFI:T:ADB;S:${escapeWifiQrValue(serviceName)};P:${escapeWifiQrValue(password)};;`
+}
+
+function randomAdbQrToken(length = 10) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, value => alphabet[value % alphabet.length]).join('')
 }
 
 function concatBytes(...parts) {
@@ -365,30 +395,6 @@ function parseSpsConfig(unit) {
   return { codec, width, height }
 }
 
-function buildAvcDecoderConfigDescription(spsUnit, ppsUnit) {
-  const sps = stripStartCode(spsUnit)
-  const pps = stripStartCode(ppsUnit)
-  if (!sps?.length || !pps?.length || sps.length < 4) return null
-
-  const description = new Uint8Array(11 + sps.length + pps.length)
-  let offset = 0
-  description[offset++] = 1
-  description[offset++] = sps[1]
-  description[offset++] = sps[2]
-  description[offset++] = sps[3]
-  description[offset++] = 0xff
-  description[offset++] = 0xe1
-  description[offset++] = (sps.length >> 8) & 0xff
-  description[offset++] = sps.length & 0xff
-  description.set(sps, offset)
-  offset += sps.length
-  description[offset++] = 1
-  description[offset++] = (pps.length >> 8) & 0xff
-  description[offset++] = pps.length & 0xff
-  description.set(pps, offset)
-  return description
-}
-
 function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
   const state = {
     supported: typeof window !== 'undefined' && 'VideoDecoder' in window,
@@ -413,7 +419,6 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
       onFrame?.(frame)
     },
     error: error => {
-      state.configured = false
       onStatus?.(`Decoder error: ${error?.message || error}`)
     },
   })
@@ -422,20 +427,16 @@ function createLiveStreamDecoder({ serial, onStatus, onFrame }) {
     if (!state.hasVcl || (!force && state.accessUnit.length === 0)) return
     if (!state.configured) {
       const spsConfig = state.latestSps && parseSpsConfig(state.latestSps)
-      const description = buildAvcDecoderConfigDescription(state.latestSps, state.latestPps)
-      if (!spsConfig || !description) return
+      if (!spsConfig) return
       try {
         state.decoder.configure({
           codec: spsConfig.codec,
-          description,
           optimizeForLatency: true,
           codedWidth: spsConfig.width,
           codedHeight: spsConfig.height,
         })
       } catch (error) {
-        onStatus?.(`Live stream decoder unavailable; compatibility mode required: ${error?.message || error}`)
-        state.accessUnit = []
-        state.hasVcl = false
+        onStatus?.(`Decoder rejected configuration: ${error?.message || error}`)
         return
       }
       state.configured = true
@@ -896,17 +897,17 @@ function LinuxUsbHelperCard({ devices, ready, onOpenWireless, embedded = false, 
   )
 }
 
-function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, interactive = false }) {
+function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Start Stream to begin live view.', maxDisplayWidth = 320, minDisplayHeight = 460, fitToContainer = false, interactive = false, onGeometryChange }) {
   const canvasRef = useRef(null)
   const snapshotRef = useRef(null)
   const gestureRef = useRef(null)
-  const compatibilityBusyRef = useRef(false)
   const [hasVideo, setHasVideo] = useState(false)
   const [decoderStatus, setDecoderStatus] = useState('')
-  const [compatibilityMode, setCompatibilityMode] = useState(false)
-  const [compatibilitySnapshotSrc, setCompatibilitySnapshotSrc] = useState('')
 
-  const activeSnapshotSrc = compatibilitySnapshotSrc || snapshotSrc
+  const recordSurfaceSize = useCallback((width, height) => {
+    if (!width || !height) return
+    onGeometryChange?.({ width, height })
+  }, [onGeometryChange])
 
   function activeSurfaceMetrics() {
     if (hasVideo && canvasRef.current) {
@@ -993,19 +994,11 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
   useEffect(() => {
     setHasVideo(false)
     setDecoderStatus('')
-    setCompatibilityMode(false)
-    setCompatibilitySnapshotSrc('')
     if (!serial) return undefined
 
     const decoder = createLiveStreamDecoder({
       serial,
-      onStatus: message => {
-        const nextStatus = message || ''
-        setDecoderStatus(nextStatus)
-        if (/(compatibility mode required|does not support the VideoDecoder API|Decoder rejected frame|Decoder error)/i.test(nextStatus)) {
-          setCompatibilityMode(true)
-        }
-      },
+      onStatus: message => setDecoderStatus(message || ''),
       onFrame: frame => {
         const canvas = canvasRef.current
         if (!canvas) {
@@ -1019,8 +1012,8 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
         const ctx = canvas.getContext('2d', { alpha: false })
         ctx?.drawImage(frame, 0, 0, width, height)
         frame.close()
+        recordSurfaceSize(width, height)
         setHasVideo(true)
-        setCompatibilityMode(false)
       },
     })
 
@@ -1042,55 +1035,19 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
       unlistenStatus?.()
       decoder.stop?.()
     }
-  }, [serial])
+  }, [serial, recordSurfaceSize])
 
   useEffect(() => {
-    if (!running || !serial || hasVideo || compatibilityMode) return undefined
-    const timer = window.setTimeout(() => {
-      setCompatibilityMode(true)
-      setDecoderStatus(current => current || 'Live decoder stalled; switching to compatibility capture mode…')
-    }, 2200)
-    return () => window.clearTimeout(timer)
-  }, [running, serial, hasVideo, compatibilityMode])
-
-  useEffect(() => {
-    if (!running || !serial || hasVideo || !compatibilityMode) return undefined
-    let cancelled = false
-    let timerId = null
-
-    const pollFrame = async () => {
-      if (cancelled || compatibilityBusyRef.current) return
-      compatibilityBusyRef.current = true
-      try {
-        const res = await invoke('capture_screen_frame', { serial })
-        if (cancelled) return
-        if (!res?.ok || !res?.b64) {
-          throw new Error(res?.stderr || 'Failed to capture a compatibility frame.')
-        }
-        const normalizedB64 = String(res.b64).trim()
-        const src = normalizedB64.startsWith('data:')
-          ? normalizedB64
-          : `data:image/png;base64,${normalizedB64}`
-        setCompatibilitySnapshotSrc(src)
-        setDecoderStatus('Live stream running in compatibility capture mode.')
-      } catch (error) {
-        if (!cancelled) setDecoderStatus(`Compatibility capture failed: ${error}`)
-      } finally {
-        compatibilityBusyRef.current = false
-        if (!cancelled) timerId = window.setTimeout(pollFrame, 900)
-      }
+    if (!snapshotSrc || hasVideo) return
+    const image = snapshotRef.current
+    if (image?.complete && image.naturalWidth && image.naturalHeight) {
+      recordSurfaceSize(image.naturalWidth, image.naturalHeight)
     }
-
-    pollFrame()
-    return () => {
-      cancelled = true
-      if (timerId) window.clearTimeout(timerId)
-    }
-  }, [running, serial, hasVideo, compatibilityMode])
+  }, [snapshotSrc, hasVideo, recordSurfaceSize])
 
   return (
     <>
-      <div style={{ minHeight: 460, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ width: '100%', height: fitToContainer ? '100%' : 'auto', minHeight: minDisplayHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '24px', padding: 16, position: 'relative', overflow: 'hidden', boxSizing: 'border-box' }}>
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}
@@ -1100,7 +1057,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             display: hasVideo ? 'block' : 'none',
             width: 'auto',
             height: 'auto',
-            maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+            maxWidth: fitToContainer ? '100%' : (maxDisplayWidth ? `${maxDisplayWidth}px` : '100%'),
             maxHeight: '100%',
             borderRadius: 20,
             border: '1px solid var(--border)',
@@ -1110,12 +1067,18 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             cursor: interactive && running ? 'crosshair' : 'default',
           }}
         />
-        {!hasVideo && activeSnapshotSrc && (
+        {!hasVideo && snapshotSrc && (
           <img
             ref={snapshotRef}
-            key={activeSnapshotSrc}
-            src={activeSnapshotSrc}
+            key={snapshotSrc}
+            src={snapshotSrc}
             alt="Connected device preview"
+            onLoad={() => {
+              const image = snapshotRef.current
+              if (image?.naturalWidth && image?.naturalHeight) {
+                recordSurfaceSize(image.naturalWidth, image.naturalHeight)
+              }
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -1123,7 +1086,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
               display: 'block',
               width: 'auto',
               height: 'auto',
-              maxWidth: maxDisplayWidth ? `${maxDisplayWidth}px` : '100%',
+              maxWidth: fitToContainer ? '100%' : (maxDisplayWidth ? `${maxDisplayWidth}px` : '100%'),
               maxHeight: '100%',
               borderRadius: 20,
               border: '1px solid var(--border)',
@@ -1133,7 +1096,7 @@ function LiveVideoSurface({ serial, running, snapshotSrc = '', emptyLabel = 'Sta
             }}
           />
         )}
-        {!hasVideo && !activeSnapshotSrc && (
+        {!hasVideo && !snapshotSrc && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6 }}>
             {running ? 'Waiting for first video frame…' : emptyLabel}
           </div>
@@ -5468,6 +5431,506 @@ function TVPanel({ device, onNavigateToDevices }) {
   return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="tv" />
 }
 
+const SECURITY_CATEGORIES = [
+  { id: 'all', label: 'All' },
+  { id: 'security', label: 'Security' },
+  { id: 'vpn', label: 'VPN' },
+]
+
+const SECURITY_TRUST = {
+  top: { label: 'Top Pick', color: 'var(--accent)', bg: 'rgba(168,85,247,0.16)' },
+  trusted: { label: 'Trusted', color: 'var(--accent-green)', bg: 'rgba(34,197,94,0.16)' },
+  premium: { label: 'Premium', color: 'var(--accent-yellow)', bg: 'rgba(245,158,11,0.16)' },
+}
+
+async function resolveGithubLatestApk(repo, matcher) {
+  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    headers: { Accept: 'application/vnd.github+json' },
+  })
+  if (!response.ok) throw new Error(`GitHub release lookup failed for ${repo}: ${response.status}`)
+  const data = await response.json()
+  const asset = (data.assets || []).find(asset => matcher(asset?.name || ''))
+  if (!asset?.browser_download_url) throw new Error(`No APK asset found for ${repo}`)
+  return { url: asset.browser_download_url, filename: asset.name, pageUrl: data.html_url || '' }
+}
+
+function playStoreSearchUrl(query) {
+  return `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`
+}
+
+function playStoreIntentUrl(query) {
+  return `market://search?q=${encodeURIComponent(query)}&c=apps`
+}
+
+const SECURITY_APPS = [
+  {
+    id: 'varynx',
+    category: 'security',
+    source: 'play',
+    name: 'VARYNX-2.0',
+    icon: '🛡️',
+    badge: 'top',
+    tagline: 'Offline behavioral guardian',
+    pkg: '',
+    playQuery: 'VARYNX-2.0',
+    desc: 'Monitors for hardware skimmers, network anomalies, and device tampering without cloud telemetry.',
+    tags: ['Offline', 'Behavioral Guard', 'Tamper Checks'],
+  },
+  {
+    id: 'hypatia',
+    category: 'security',
+    source: 'fdroid',
+    name: 'Hypatia',
+    icon: '🧬',
+    badge: 'trusted',
+    tagline: 'Local FOSS malware scanner',
+    pkg: 'us.spotco.malwarescanner',
+    apkUrl: 'https://f-droid.org/repo/us.spotco.malwarescanner_314.apk',
+    pageUrl: 'https://f-droid.org/packages/us.spotco.malwarescanner/',
+    desc: 'Privacy-focused malware scanner that works 100% locally with near-zero battery drain.',
+    tags: ['F-Droid', 'Local Only', 'Low Battery'],
+  },
+  {
+    id: 'bitdefender',
+    category: 'security',
+    source: 'play',
+    name: 'Bitdefender Mobile Security',
+    icon: '🦠',
+    badge: 'premium',
+    tagline: 'Cloud-assisted mobile antivirus',
+    pkg: 'com.bitdefender.antivirus',
+    playQuery: 'Bitdefender Mobile Security',
+    desc: 'Cloud-based scanning, SMS scam alerts, and App Lock protection for Android devices.',
+    tags: ['Realtime', 'SMS Alerts', 'App Lock'],
+  },
+  {
+    id: 'norton',
+    category: 'security',
+    source: 'play',
+    name: 'Norton 360 Deluxe',
+    icon: '🧠',
+    badge: 'premium',
+    tagline: 'Identity and malware protection suite',
+    pkg: 'com.symantec.mobilesecurity',
+    playQuery: 'Norton 360 Deluxe',
+    desc: 'Dark Web Monitoring, phishing defense, malware scanning, and broader identity protection features.',
+    tags: ['Identity', 'Dark Web', 'Phishing'],
+  },
+  {
+    id: 'aegis',
+    category: 'security',
+    source: 'github',
+    name: 'Aegis Authenticator',
+    icon: '🔐',
+    badge: 'trusted',
+    tagline: 'Open-source 2FA vault',
+    pkg: 'com.beemdevelopment.aegis',
+    githubRepo: 'beemdevelopment/Aegis',
+    githubMatcher: name => /^aegis-.*\.apk$/i.test(name),
+    pageUrl: 'https://f-droid.org/packages/com.beemdevelopment.aegis/',
+    desc: 'Encrypted local backups, strong 2FA management, and a clean Material You-friendly interface.',
+    tags: ['2FA', 'Encrypted Backups', 'FOSS', 'GitHub'],
+  },
+  {
+    id: 'sophos',
+    category: 'security',
+    source: 'play',
+    name: 'Sophos Intercept X',
+    icon: '📶',
+    badge: 'trusted',
+    tagline: 'Free mobile security suite',
+    pkg: 'com.sophos.smsec',
+    playQuery: 'Sophos Intercept X',
+    desc: 'Free mobile security with a secure QR scanner, link checking, and Wi-Fi security advice.',
+    tags: ['Free', 'QR Scanner', 'Wi-Fi Advisor'],
+  },
+  {
+    id: 'protonvpn',
+    category: 'vpn',
+    source: 'github',
+    name: 'Proton VPN',
+    icon: '🟣',
+    badge: 'top',
+    tagline: 'Swiss no-logs VPN',
+    pkg: 'ch.protonvpn.android',
+    githubRepo: 'ProtonVPN/android-app',
+    githubMatcher: name => /\.apk$/i.test(name) && /direct-release/i.test(name),
+    desc: 'Open-source, no-logs VPN with Secure Core, strong privacy defaults, and a strong free tier.',
+    tags: ['No Logs', 'Secure Core', 'Free Tier', 'GitHub'],
+  },
+  {
+    id: 'mullvad',
+    category: 'vpn',
+    source: 'github',
+    name: 'Mullvad VPN',
+    icon: '🦊',
+    badge: 'trusted',
+    tagline: 'Maximum anonymity VPN',
+    pkg: 'net.mullvad.mullvadvpn',
+    githubRepo: 'mullvad/mullvadvpn-app',
+    githubMatcher: name => /^MullvadVPN-.*\.apk$/i.test(name) && !/\.asc$/i.test(name),
+    desc: 'Account-number-based VPN with flat pricing and a strong anonymity-first posture.',
+    tags: ['Anonymous', 'Flat Rate', 'Privacy', 'GitHub'],
+  },
+  {
+    id: 'surfshark',
+    category: 'vpn',
+    source: 'play',
+    name: 'Surfshark',
+    icon: '🌊',
+    badge: 'premium',
+    tagline: 'Family-friendly VPN with GPS spoofing',
+    pkg: 'com.surfshark.vpnclient.android',
+    playQuery: 'Surfshark',
+    desc: 'Unlimited simultaneous connections with GPS spoofing and a consumer-friendly multi-device setup.',
+    tags: ['Unlimited Devices', 'GPS Spoofing', 'Families'],
+  },
+  {
+    id: 'nordvpn',
+    category: 'vpn',
+    source: 'play',
+    name: 'NordVPN',
+    icon: '🌐',
+    badge: 'premium',
+    tagline: 'Fast VPN with DNS-layer protection',
+    pkg: 'com.nordvpn.android',
+    playQuery: 'NordVPN',
+    desc: 'Fast, feature-rich VPN with Threat Protection style DNS filtering for ads, trackers, and malware.',
+    tags: ['Fast', 'Threat Protection', 'DNS Filtering'],
+  },
+  {
+    id: 'ivpn',
+    category: 'vpn',
+    source: 'official',
+    name: 'IVPN',
+    icon: '🔒',
+    badge: 'trusted',
+    tagline: 'Audited privacy-hardened VPN',
+    pkg: 'net.ivpn.client',
+    browserUrl: 'https://www.ivpn.net/apps-android/',
+    desc: 'Multi-hop routing, transparent infrastructure, and a security-forward service design.',
+    tags: ['Multi-hop', 'Audited', 'Official Site'],
+  },
+  {
+    id: 'mozilla-vpn',
+    category: 'vpn',
+    source: 'play',
+    name: 'Mozilla VPN',
+    icon: '🦊',
+    badge: 'trusted',
+    tagline: 'Privacy-focused VPN from Mozilla',
+    pkg: 'org.mozilla.firefox.vpn',
+    playQuery: 'Mozilla VPN',
+    desc: 'Mozilla-backed VPN with no-logs positioning, multi-hop support, and a simple privacy-first experience.',
+    tags: ['Mozilla', 'Privacy', 'Multi-hop'],
+  },
+]
+
+function SecurityAppCard({ app, serial, noDevice, platform, status, onStatusChange, addToast }) {
+  const [phase, setPhase] = useState('idle')
+  const [errMsg, setErrMsg] = useState('')
+  const busy = phase === 'downloading' || phase === 'installing' || phase === 'opening'
+  const isInstalled = status === 'installed'
+  const isChecking = status === 'checking'
+  const badge = SECURITY_TRUST[app.badge] || SECURITY_TRUST.trusted
+
+  async function recheckStatus() {
+    if (!app.pkg || !serial) return
+    onStatusChange(app.id, 'checking')
+    try {
+      const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', app.pkg] })
+      onStatusChange(app.id, res.stdout?.includes(`package:${app.pkg}`) ? 'installed' : 'not_installed')
+    } catch {
+      onStatusChange(app.id, 'not_installed')
+    }
+  }
+
+  async function openOnDevice() {
+    if (!serial) return false
+    const targetUrl = app.source === 'play'
+      ? playStoreIntentUrl(app.playQuery || app.name)
+      : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+    try {
+      setPhase('opening')
+      await invoke('run_adb', {
+        args: ['-s', serial, 'shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', targetUrl],
+      })
+      addToast(`Opened ${app.name} on the device`, 'success')
+      setPhase('idle')
+      return true
+    } catch (error) {
+      setPhase('error')
+      setErrMsg(String(error))
+      return false
+    }
+  }
+
+  async function handlePrimary() {
+    setErrMsg('')
+    if ((app.source === 'fdroid' && app.apkUrl) || app.source === 'github') {
+      if (noDevice) return
+      setPhase('downloading')
+      const timer = setTimeout(() => setPhase(p => (p === 'downloading' ? 'installing' : p)), 1800)
+      try {
+        const resolved = app.source === 'github'
+          ? await resolveGithubLatestApk(app.githubRepo, app.githubMatcher)
+          : { url: app.apkUrl }
+        const res = await invoke('install_from_url', {
+          serial,
+          url: resolved.url,
+          filename: resolved.filename || `security_${app.id}.apk`,
+        })
+        clearTimeout(timer)
+        if (platform === 'android' && res?.localPath) await openUrl(res.localPath)
+        if (res.ok) {
+          addToast(platform === 'android' && res?.localPath
+            ? `${app.name} opened in the Android package installer`
+            : `${app.name} installed successfully`, 'success')
+          setPhase('idle')
+          recheckStatus()
+        } else {
+          setPhase('error')
+          setErrMsg(res.stderr?.trim() || res.stdout?.trim() || 'Install failed')
+          addToast(`Failed to install ${app.name}`, 'error')
+        }
+      } catch (error) {
+        clearTimeout(timer)
+        setPhase('error')
+        setErrMsg(String(error))
+        addToast(`Failed to install ${app.name}`, 'error')
+      }
+      return
+    }
+
+    if (!noDevice && (app.source === 'play' || app.source === 'official')) {
+      const opened = await openOnDevice()
+      if (opened) return
+    }
+
+    await openUrl(
+      app.source === 'play'
+        ? playStoreSearchUrl(app.playQuery || app.name)
+        : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+    )
+    setPhase('idle')
+  }
+
+  const actionLabel = app.source === 'fdroid'
+    ? (busy ? (phase === 'downloading' ? 'Downloading…' : 'Installing…') : isInstalled ? 'Reinstall' : 'Install')
+    : app.source === 'github'
+    ? (busy ? (phase === 'downloading' ? 'Downloading…' : 'Installing…') : isInstalled ? 'Reinstall' : 'Install')
+    : busy
+      ? 'Opening…'
+      : (!noDevice ? 'Open on Device' : app.source === 'play' ? 'Open Play Store' : 'Open Site')
+
+  return (
+    <div style={{
+      background: 'var(--bg-surface)',
+      border: `1px solid ${isInstalled ? 'rgba(34,197,94,0.22)' : 'var(--border-subtle)'}`,
+      borderRadius: 'var(--radius-lg)',
+      padding: '14px 12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+      minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{app.icon}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+            <span style={{ fontWeight: 'var(--font-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+              {app.name}
+            </span>
+            <span style={{ fontSize: 9, fontWeight: 'var(--font-bold)', padding: '1px 5px', borderRadius: 4, background: badge.bg, color: badge.color }}>
+              {badge.label}
+            </span>
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+            {app.tagline}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+        {app.desc}
+      </div>
+
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: badge.color }}>
+          {app.source === 'fdroid' ? 'F-Droid' : app.source === 'github' ? 'GitHub' : app.source === 'play' ? 'Google Play' : 'Official Site'}
+        </span>
+        {app.tags.map(tag => (
+          <span key={tag} style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)' }}>
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 'var(--text-xs)', minHeight: 14 }}>
+        {isChecking && serial
+          ? <span style={{ color: 'var(--text-muted)' }}>Checking…</span>
+          : isInstalled
+            ? <span style={{ color: 'var(--accent-green)', fontWeight: 'var(--font-semibold)' }}>● Installed</span>
+            : app.source === 'fdroid' || app.source === 'github'
+              ? <span style={{ color: noDevice ? 'var(--text-muted)' : 'var(--accent-teal)' }}>{noDevice ? 'Connect a device to install' : 'Ready for direct install'}</span>
+              : <span style={{ color: 'var(--text-muted)' }}>{!noDevice ? 'Can open on device or in browser' : 'Opens store page in browser'}</span>}
+      </div>
+
+      {phase === 'error' && errMsg && (
+        <div style={{ fontSize: 10, color: 'var(--accent-red)', wordBreak: 'break-word' }}>{errMsg}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          className={app.source === 'fdroid' || app.source === 'github' ? 'btn-success' : 'btn-primary'}
+          style={{ ...btnStyle, flex: 1 }}
+          disabled={((app.source === 'fdroid' || app.source === 'github') && noDevice) || busy}
+          onClick={handlePrimary}
+        >
+          {actionLabel}
+        </button>
+        <button
+          className="btn-ghost"
+          style={{ ...btnStyle, flex: 1 }}
+          onClick={() => openUrl(
+            app.source === 'play'
+              ? playStoreSearchUrl(app.playQuery || app.name)
+              : app.source === 'github'
+                ? `https://github.com/${app.githubRepo}/releases`
+                : app.browserUrl || app.pageUrl || playStoreSearchUrl(app.playQuery || app.name)
+          )}
+        >
+          {app.source === 'fdroid' ? 'View Page' : app.source === 'github' ? 'Releases' : app.source === 'play' ? 'Browser' : 'Official'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
+  const [catFilter, setCatFilter] = useState('all')
+  const [statuses, setStatuses] = useState({})
+  const [toasts, setToasts] = useState([])
+  const serial = device?.serial
+  const noDevice = !device || device.status !== 'device'
+
+  useEffect(() => {
+    if (!serial) {
+      setStatuses({})
+      return
+    }
+    const fresh = {}
+    SECURITY_APPS.forEach(app => {
+      if (app.pkg) fresh[app.id] = 'checking'
+    })
+    setStatuses(fresh)
+    SECURITY_APPS.forEach(app => {
+      if (!app.pkg) return
+      invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', app.pkg] })
+        .then(res => {
+          const installed = res.stdout?.includes(`package:${app.pkg}`) ?? false
+          setStatuses(s => ({ ...s, [app.id]: installed ? 'installed' : 'not_installed' }))
+        })
+        .catch(() => setStatuses(s => ({ ...s, [app.id]: 'not_installed' })))
+    })
+  }, [serial])
+
+  function addToast(msg, type = 'success') {
+    const id = crypto.randomUUID()
+    setToasts(items => [...items, { id, msg, type }])
+    setTimeout(() => setToasts(items => items.filter(item => item.id !== id)), 3000)
+  }
+
+  const filtered = catFilter === 'all'
+    ? SECURITY_APPS
+    : SECURITY_APPS.filter(app => app.category === catFilter)
+
+  const directCount = SECURITY_APPS.filter(app => app.source === 'fdroid').length
+
+  return (
+    <div className="panel-content" style={{ position: 'relative', padding: 0 }}>
+      {noDevice && (
+        <div className="warning-banner" style={{ marginBottom: 20 }}>
+          <span>No device connected — direct F-Droid installs are disabled, but Play Store and official links still work.</span>
+          <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }} onClick={onNavigateToDevices}>
+            View Devices
+          </button>
+        </div>
+      )}
+
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(34,197,94,0.18)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '16px 18px',
+        marginBottom: 18,
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-green)', marginBottom: 8 }}>
+          Security & VPN Master List
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Curated 2026-ready Android security and VPN recommendations. F-Droid entries install directly from the toolkit. Play Store and official-site entries open on your connected phone when possible, or in your browser as a fallback.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <span style={{ fontSize: 10, color: 'var(--accent)', background: 'rgba(168,85,247,0.15)', borderRadius: 999, padding: '2px 8px' }}>Top Picks: VARYNX-2.0 + Proton VPN</span>
+          <span style={{ fontSize: 10, color: 'var(--accent-green)', background: 'rgba(34,197,94,0.14)', borderRadius: 999, padding: '2px 8px' }}>{directCount} direct F-Droid installs</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
+        {SECURITY_CATEGORIES.map(cat => (
+          <button
+            key={cat.id}
+            className={catFilter === cat.id ? 'btn-primary' : 'btn-ghost'}
+            style={{ padding: '6px 14px', fontSize: 'var(--text-xs)', borderRadius: 99 }}
+            onClick={() => setCatFilter(cat.id)}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+        {filtered.map(app => (
+          <SecurityAppCard
+            key={app.id}
+            app={app}
+            serial={serial}
+            noDevice={noDevice}
+            platform={platform}
+            status={statuses[app.id]}
+            onStatusChange={(id, value) => setStatuses(s => ({ ...s, [id]: value }))}
+            addToast={addToast}
+          />
+        ))}
+      </div>
+
+      <div style={{
+        position: 'fixed', bottom: 24, right: 24,
+        display: 'flex', flexDirection: 'column', gap: 8,
+        zIndex: 9999, pointerEvents: 'none',
+      }}>
+        {toasts.map(toast => (
+          <div key={toast.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: toast.type === 'success' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+            border: `1px solid ${toast.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+            color: toast.type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)',
+            borderRadius: 'var(--radius-md)',
+            padding: '10px 14px',
+            fontSize: 'var(--text-sm)',
+            maxWidth: 340,
+            backdropFilter: 'blur(8px)',
+          }}>
+            <span>{toast.type === 'success' ? '✓' : '✗'}</span>
+            <span>{toast.msg}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, onOpenPanel }) {
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
@@ -5530,6 +5993,7 @@ function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, o
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
           {[
             { id: 'tools', label: 'Tools' },
+            { id: 'security', label: 'Security' },
             { id: 'tweaks', label: 'Tweaks' },
             { id: 'maintenance', label: 'Maintenance' },
             { id: 'backups', label: 'Backup & Restore' },
@@ -5668,6 +6132,10 @@ function PhoneToolsPanel({ device, deviceProps, onNavigateToDevices, platform, o
 
         {tab === 'tweaks' && (
           <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="general" platform={platform} onOpenPanel={onOpenPanel} embedded />
+        )}
+
+        {tab === 'security' && (
+          <SecurityHubPanel device={device} onNavigateToDevices={onNavigateToDevices} platform={platform} />
         )}
 
         {tab === 'maintenance' && (
@@ -6061,6 +6529,181 @@ const HELP_CONNECTION_CARDS = [
   },
 ]
 
+const HELP_GUIDE_SECTIONS = [
+  {
+    id: 'start-here',
+    title: 'Start Here',
+    summary: 'A simple order for safe everyday use: connect the device, confirm it appears, choose the right panel, back up before risky changes, and test one change at a time.',
+    tags: ['basics', 'beginner', 'first run', 'safe workflow'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Getting Started', target: 'getting-started' },
+    ],
+    items: [
+      'Connect the device first, then confirm it shows as connected before doing anything else.',
+      'Use the panel that matches the job instead of jumping straight into advanced tools.',
+      'Create a backup before app removals, launcher changes, or flashing work.',
+      'Change one thing at a time so it is easier to undo or troubleshoot.',
+    ],
+  },
+  {
+    id: 'connect-device',
+    title: 'Connect a Device',
+    summary: 'Use this when the toolkit cannot see your phone, TV box, or headset yet.',
+    tags: ['usb', 'wireless adb', 'pairing', 'developer options', 'connected devices'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Read Wireless Guide', url: 'https://developer.android.com/tools/adb#connect-to-a-device-over-wi-fi' },
+    ],
+    items: [
+      'Enable Developer Options, then turn on USB debugging on the Android device.',
+      'For USB setup, unlock the device and press Allow if Android asks whether to trust this computer.',
+      'Wireless ADB uses two steps: Pair via Code first, then Connect with the separate host and port from the main Wireless debugging screen.',
+      'If a device shows Unauthorized, reconnect it, unlock it, and accept the USB debugging prompt again.',
+    ],
+  },
+  {
+    id: 'everyday-workflows',
+    title: 'Everyday Workflows',
+    summary: 'Quick paths for the tasks most users come here to do.',
+    tags: ['install', 'backup', 'logs', 'tv', 'workflow'],
+    actions: [
+      { label: 'Open Install APK', target: 'install' },
+      { label: 'Open Backup & Restore', target: 'backups' },
+      { label: 'Open ADB & Shell', target: 'adb' },
+    ],
+    items: [
+      'Install an app: connect the device, open Install APK, add the package, then install it.',
+      'Find and install an app: search in Search APKs, add it to the queue, then finish in Install APK.',
+      'Back up before experimenting: open Backup & Restore, choose the app, create the backup, and confirm it appears before making changes.',
+      'Watch logs while testing: connect the device, open ADB & Shell, start Logcat, then reproduce the issue.',
+      'Pair a TV box over Wi-Fi: enable Wireless debugging, pair with the temporary pairing port and code, then connect with the separate host and port.',
+    ],
+  },
+  {
+    id: 'troubleshooting',
+    title: 'Troubleshooting',
+    summary: 'The fastest fixes for the problems users hit most often.',
+    tags: ['not detected', 'unauthorized', 'install failed', 'restore', 'linux', 'windows', 'macos'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Drivers', target: 'drivers' },
+      { label: 'Open Help Section', target: 'help' },
+    ],
+    items: [
+      'Device not detected over USB: unlock the device, confirm USB debugging, accept the prompt, try another USB port, try a known data-capable cable, then rescan in Connected Devices.',
+      'Windows: install the correct USB driver from Drivers if adb or fastboot cannot see the device.',
+      'Linux: use the USB permissions fix below when the phone does not appear even though USB debugging is enabled.',
+      'macOS: reconnect the device after platform-tools are installed and confirm the phone still has USB debugging enabled.',
+      'Wireless ADB not connecting: confirm both devices are on the same network, recheck both host:port values, and pair again if the code expired.',
+      'APK install failed: check storage, Android version compatibility, package signatures, and split-package handling for XAPK or APKM files.',
+      'Restore did not bring everything back: APKs, OBB files, and shared folders usually restore, but some private app data still needs root, an app export, or a fresh sign-in.',
+    ],
+  },
+  {
+    id: 'best-panel',
+    title: 'Find the Right Panel',
+    summary: 'If you know the goal but not the section, start here.',
+    tags: ['which panel', 'reference', 'where do i go', 'quick reference'],
+    actions: [
+      { label: 'Open Connected Devices', target: 'devices' },
+      { label: 'Open Apps', target: 'apps' },
+    ],
+    items: [
+      'Connect a phone, TV, or headset: Connected Devices.',
+      'Sideload an APK: Install APK.',
+      'Find download sources: Search APKs.',
+      'Install a third-party store: App Stores.',
+      'Remove, launch, or inspect an app: Manage Apps.',
+      'Back up and restore apps: Backup & Restore.',
+      'Run commands or watch logs: ADB & Shell.',
+      'Browse storage and move files: File Browser.',
+      'Tune TV or Fire TV devices: TV & Streaming.',
+      'Work with Quest headsets: Quest Tools.',
+      'Troubleshoot Windows USB detection: Drivers.',
+    ],
+  },
+]
+
+function helpSectionMatches(section, query) {
+  if (!query) return true
+  const haystack = [
+    section.title,
+    section.summary,
+    ...(section.tags || []),
+    ...(section.items || []),
+  ].join(' ').toLowerCase()
+  return haystack.includes(query.toLowerCase())
+}
+
+function HelpGuideSection({ section, isAndroid, onOpenPanel }) {
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-md)',
+      padding: '16px 18px',
+    }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: isAndroid ? 15 : 'var(--text-base)', fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+            {section.title}
+          </div>
+          <div style={{ fontSize: isAndroid ? 13 : 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            {section.summary}
+          </div>
+        </div>
+        {section.tags?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+            {section.tags.slice(0, 4).map(tag => (
+              <span key={tag} style={{
+                padding: '3px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: 10,
+                color: 'var(--text-muted)',
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginBottom: 12 }}>
+        {section.items.map((item, index) => (
+          <div key={`${section.id}-${index}`} style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '10px 12px',
+            fontSize: isAndroid ? 13 : 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+            lineHeight: 1.6,
+          }}>
+            <span style={{ color: 'var(--accent-teal)', fontWeight: 'var(--font-bold)' }}>{index + 1}.</span>{' '}
+            {item}
+          </div>
+        ))}
+      </div>
+      {section.actions?.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {section.actions.map(action => (
+            <button
+              key={`${section.id}-${action.label}`}
+              className="btn-ghost"
+              style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+              onClick={() => action.target ? onOpenPanel?.(action.target) : openUrl(action.url)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PlatformSetupCard({ title, kicker, body, accent, current, steps = [], actions = [], command = '', details = '', children }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -6179,6 +6822,8 @@ function PlatformSetupCard({ title, kicker, body, accent, current, steps = [], a
 
 function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const [platform, setPlatform] = useState(() => previewPlatformOverride() || 'desktop')
+  const [guideQuery, setGuideQuery] = useState('')
+  const guideSectionRefs = useRef({})
   useEffect(() => {
     const preview = previewPlatformOverride()
     if (preview) {
@@ -6228,6 +6873,9 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
   const panelTitle = mode === 'getting-started' ? 'Getting Started' : mode === 'about' ? 'About' : 'Help & Docs'
   const showConnectionHelp = mode === 'help' && !isAndroid
   const showPlatformSetup = mode === 'help' && !isAndroid
+  const showGuideFinder = mode === 'help'
+  const filteredGuideSections = HELP_GUIDE_SECTIONS.filter(section => helpSectionMatches(section, guideQuery))
+  const quickJumpSections = HELP_GUIDE_SECTIONS.map(section => ({ id: section.id, title: section.title }))
   const platformSetupCards = [
     {
       id: 'linux',
@@ -6322,6 +6970,78 @@ function HelpDocsPanel({ onShowWelcome, mode = 'help', onOpenPanel }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {showGuideFinder && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(20,184,166,0.06))',
+              border: '1px solid rgba(168,85,247,0.18)',
+              borderRadius: 'var(--radius-md)',
+              padding: '18px 20px',
+            }}>
+              <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 6 }}>
+                Find the right help fast
+              </div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
+                This guide is based on the Android Toolkit User Guide and reorganized for quick scanning inside the app. Search by task, problem, or panel name to jump to the section you need.
+              </div>
+              <input
+                value={guideQuery}
+                onChange={event => setGuideQuery(event.target.value)}
+                placeholder="Search help topics like wireless adb, backup, unauthorized, tv, drivers..."
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)',
+                  fontSize: 'var(--text-sm)',
+                  padding: '10px 12px',
+                  outline: 'none',
+                  marginBottom: 12,
+                }}
+              />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {quickJumpSections.map(section => (
+                  <button
+                    key={section.id}
+                    className="btn-ghost"
+                    style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}
+                    onClick={() => guideSectionRefs.current[section.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    {section.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showGuideFinder && (
+          <div style={{ marginBottom: 24 }}>
+            <div className="sidebar-section-label" style={{ marginBottom: 12 }}>Guide Sections</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+              {filteredGuideSections.map(section => (
+                <div key={section.id} ref={node => { guideSectionRefs.current[section.id] = node }}>
+                  <HelpGuideSection section={section} isAndroid={isAndroid} onOpenPanel={onOpenPanel} />
+                </div>
+              ))}
+              {filteredGuideSections.length === 0 && (
+                <div style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '16px 18px',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.6,
+                }}>
+                  No guide sections matched "{guideQuery}". Try a panel name like "Install APK" or a problem like "unauthorized", "wireless adb", or "drivers".
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -7782,7 +8502,11 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   const [liveViewRunning, setLiveViewRunning] = useState(false)
   const [liveViewSrc, setLiveViewSrc] = useState('')
   const [liveViewStatus, setLiveViewStatus] = useState('Idle')
+  const [mirrorFrameMode, setMirrorFrameMode] = useState('portrait')
   const mirrorPopupRef = useRef(null)
+  const liveViewUrlRef = useRef('')
+  const liveViewGeometryRef = useRef({ width: 0, height: 0 })
+  const lastOrientationRef = useRef(null)
 
   function append(text) {
     setOutput(prev => `${prev}${prev ? '\n' : ''}${text}`)
@@ -7863,14 +8587,43 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     }
   }
 
-  async function restartLiveStream(reason = null) {
+  const restartLiveStream = useCallback(async (reason = null) => {
     if (!serial || noDevice || !liveViewRunning) return
     if (reason) setLiveViewStatus(reason)
+    liveViewGeometryRef.current = { width: 0, height: 0 }
     await invoke('stop_live_stream').catch(() => null)
     await new Promise(resolve => window.setTimeout(resolve, 120))
     await invoke('start_live_stream', { serial })
     updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+  }, [serial, noDevice, liveViewRunning, device?.model])
+
+  function noteLiveGeometry(next) {
+    liveViewGeometryRef.current = next || { width: 0, height: 0 }
   }
+
+  const readDeviceOrientation = useCallback(async () => {
+    if (!serial) return null
+    try {
+      const res = await invoke('run_adb', {
+        args: [
+          '-s',
+          serial,
+          'shell',
+          'sh',
+          '-c',
+          'dumpsys display | grep mCurrentOrientation | head -n1',
+        ],
+      })
+      const output = `${res?.stdout || ''}\n${res?.stderr || ''}`
+      const match = output.match(/mCurrentOrientation=(\d+)/)
+      if (!match) return null
+      const value = Number(match[1])
+      if (Number.isNaN(value)) return null
+      return value
+    } catch {
+      return null
+    }
+  }, [serial])
 
   async function captureLiveFrame() {
     if (!serial) return
@@ -7880,10 +8633,9 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       if (!res?.ok || !res?.b64) {
         throw new Error(res?.stderr || 'Failed to capture live frame.')
       }
-      const normalizedB64 = String(res.b64).trim()
-      const src = normalizedB64.startsWith('data:')
-        ? normalizedB64
-        : `data:image/png;base64,${normalizedB64}`
+      const src = captureResultToImageUrl(res, 'image/png')
+      if (liveViewUrlRef.current) URL.revokeObjectURL(liveViewUrlRef.current)
+      liveViewUrlRef.current = src
       setLiveViewSrc(src)
       setLiveViewStatus(`Snapshot captured • ${new Date().toLocaleTimeString()}`)
     } catch (error) {
@@ -7899,10 +8651,12 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     if (existing) {
       existing.setFocus().catch(() => {})
       mirrorPopupRef.current = existing
-      if (liveViewRunning) {
-        await restartLiveStream('Refreshing stream for pop-out window…')
-      }
       return
+    }
+    if (liveViewRunning) {
+      await invoke('stop_live_stream').catch(() => null)
+      setLiveViewRunning(false)
+      setLiveViewStatus('Stream moved to pop-out window. Start it there when ready.')
     }
     const title = `Nocturnal Screen Mirror${device?.model ? ` • ${device.model}` : ''}`
     const win = new WebviewWindow(label, {
@@ -7919,28 +8673,78 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
       append(`Live-view popout error: ${e.payload ?? e}`)
       mirrorPopupRef.current = null
     })
+    win.once('tauri://created', async () => {
+    })
+    win.once('tauri://destroyed', async () => {
+      mirrorPopupRef.current = null
+      await invoke('stop_live_stream').catch(() => null)
+      setLiveViewStatus('Pop-out window closed. Start the stream here to resume in the app.')
+    })
     mirrorPopupRef.current = win
-    if (liveViewRunning) {
-      await new Promise(resolve => window.setTimeout(resolve, 180))
-      await restartLiveStream('Refreshing stream for pop-out window…')
-    }
   }
 
   useEffect(() => {
     if (!liveViewRunning || noDevice || !serial) return undefined
     setLiveViewStatus('Starting live stream…')
-    invoke('start_live_stream', { serial })
-      .then(() => updateMirrorPopup(null, `Connected to ${device?.model || serial}`))
-      .catch(error => {
-        const message = `Live stream failed to start: ${error}`
-        setLiveViewStatus(message)
-        append(message)
-        setLiveViewRunning(false)
-      })
+    liveViewGeometryRef.current = { width: 0, height: 0 }
+    let cancelled = false
+    const timerId = window.setTimeout(() => {
+      invoke('start_live_stream', { serial })
+        .then(() => {
+          if (!cancelled) updateMirrorPopup(null, `Connected to ${device?.model || serial}`)
+        })
+        .catch(error => {
+          if (cancelled) return
+          const message = `Live stream failed to start: ${error}`
+          setLiveViewStatus(message)
+          append(message)
+          setLiveViewRunning(false)
+        })
+    }, 140)
     return () => {
+      cancelled = true
+      window.clearTimeout(timerId)
       invoke('stop_live_stream').catch(() => null)
     }
   }, [liveViewRunning, serial, noDevice, device?.model])
+
+  useEffect(() => {
+    if (!liveViewRunning || noDevice || !serial) {
+      lastOrientationRef.current = null
+      return undefined
+    }
+
+    let cancelled = false
+    let timerId = null
+
+    const pollOrientation = async () => {
+      const nextOrientation = await readDeviceOrientation()
+      if (cancelled || nextOrientation == null) {
+        if (!cancelled) timerId = window.setTimeout(pollOrientation, 1200)
+        return
+      }
+
+      const previousOrientation = lastOrientationRef.current
+      lastOrientationRef.current = nextOrientation
+      const surface = liveViewGeometryRef.current
+      const streamLooksPortrait = surface.width > 0 && surface.height > 0
+        ? surface.height >= surface.width
+        : null
+      const deviceLooksPortrait = nextOrientation % 2 === 0
+
+      if (previousOrientation != null && previousOrientation !== nextOrientation && streamLooksPortrait !== null && streamLooksPortrait !== deviceLooksPortrait) {
+        await restartLiveStream('Device rotated • refreshing live stream…')
+      }
+
+      if (!cancelled) timerId = window.setTimeout(pollOrientation, 1200)
+    }
+
+    pollOrientation()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [liveViewRunning, noDevice, serial, readDeviceOrientation, restartLiveStream])
 
   useEffect(() => {
     let unlisten
@@ -7955,6 +8759,15 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
     return () => unlisten?.()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (liveViewUrlRef.current) {
+        URL.revokeObjectURL(liveViewUrlRef.current)
+        liveViewUrlRef.current = ''
+      }
+    }
+  }, [])
+
   const sectionStyle = {
     background: 'var(--bg-surface)',
     border: '1px solid var(--border)',
@@ -7963,6 +8776,8 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
   }
 
   const actionButtonStyle = { padding: '6px 12px', fontSize: 'var(--text-xs)' }
+  const mirrorDisplayWidth = mirrorFrameMode === 'landscape' ? 720 : 360
+  const mirrorSurfaceMinHeight = mirrorFrameMode === 'landscape' ? 360 : 460
 
   return (
     <div className="panel-content">
@@ -8010,6 +8825,7 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={recordScreen}>Record 10s</button>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon true; input keyevent KEYCODE_WAKEUP', 'Keep screen awake while plugged in')}>Stay Awake On</button>
             <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={() => runDeviceShell('svc power stayon false', 'Restore normal sleep behavior')}>Stay Awake Off</button>
+            <button className="btn-ghost" style={{ ...actionButtonStyle, opacity: 0.45, cursor: 'not-allowed' }} disabled onClick={_openLivePopup} title="Pop-out is temporarily disabled while Screen Mirror is stabilized.">Pop Out</button>
             <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('files')}>Open File Browser</button>
             <button className="btn-ghost" style={actionButtonStyle} onClick={() => onOpenPanel?.('adb')}>Open ADB & Shell</button>
           </div>
@@ -8024,11 +8840,34 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                 <button className="btn-ghost" style={actionButtonStyle} disabled={noDevice || running} onClick={captureLiveFrame}>Capture Now</button>
               </div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Mirror Mode
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'portrait', label: 'Portrait' },
+                    { id: 'landscape', label: 'Landscape' },
+                  ].map(option => (
+                    <button
+                      key={option.id}
+                      className={mirrorFrameMode === option.id ? 'btn-primary' : 'btn-ghost'}
+                      style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }}
+                      onClick={() => setMirrorFrameMode(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 6 }}>
+                  Landscape is experimental and may cause sizing or stream issues on some devices.
+                </div>
+              </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 {liveViewStatus}
               </div>
             </div>
-            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive />
+            <LiveVideoSurface serial={serial} running={liveViewRunning} snapshotSrc={liveViewSrc} emptyLabel="Start Stream to open a mirrored phone screen for the connected device." interactive maxDisplayWidth={mirrorDisplayWidth} minDisplayHeight={mirrorSurfaceMinHeight} onGeometryChange={noteLiveGeometry} />
           </div>
         </div>
 
@@ -8047,6 +8886,57 @@ function DesktopDeviceCompanionPanel({ device, onNavigateToDevices, onOpenPanel 
 
 function LiveViewPopupWindow() {
   const serial = liveViewPopupSerial()
+  const [snapshotSrc, setSnapshotSrc] = useState('')
+  const [popupRunning, setPopupRunning] = useState(false)
+  const [popupStatus, setPopupStatus] = useState('Ready in pop-out window.')
+  const [surfaceSession, setSurfaceSession] = useState(0)
+
+  useEffect(() => {
+    if (!serial) return undefined
+    let cancelled = false
+    let objectUrl = ''
+
+    invoke('capture_screen_frame', { serial })
+      .then(result => {
+        if (cancelled || !result?.ok || !result?.b64) return
+        objectUrl = captureResultToImageUrl(result, 'image/png')
+        setSnapshotSrc(objectUrl)
+      })
+      .catch(() => null)
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [serial])
+
+  useEffect(() => {
+    if (!popupRunning || !serial) return undefined
+    setPopupStatus('Starting live stream…')
+    setSurfaceSession(current => current + 1)
+    invoke('start_live_stream', { serial })
+      .then(() => setPopupStatus(`Connected to ${serial}`))
+      .catch(error => {
+        setPopupStatus(`Live stream failed to start: ${error}`)
+        setPopupRunning(false)
+      })
+    return () => {
+      invoke('stop_live_stream').catch(() => null)
+    }
+  }, [popupRunning, serial])
+
+  useEffect(() => {
+    let unlisten
+    listen('live-stream:status', event => {
+      const payload = event.payload || {}
+      if (!payload.message) return
+      setPopupStatus(payload.message)
+      if (payload.state === 'stopped') setPopupRunning(false)
+    }).then(fn => {
+      unlisten = fn
+    })
+    return () => unlisten?.()
+  }, [])
 
   return (
     <div style={{
@@ -8061,8 +8951,18 @@ function LiveViewPopupWindow() {
       <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', fontSize: 14, fontWeight: 600, flexShrink: 0 }}>
         Nocturnal Screen Mirror
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
-        <LiveVideoSurface serial={serial} running={true} emptyLabel="Start the stream in the main window to see it here." maxDisplayWidth={null} interactive />
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+        <button className="btn-primary" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} onClick={() => setPopupRunning(value => !value)}>
+          {popupRunning ? 'Stop' : 'Start Stream'}
+        </button>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5, minWidth: 0, flex: '1 1 220px', wordBreak: 'break-word' }}>
+          {popupStatus}
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: 14, overflow: 'hidden' }}>
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <LiveVideoSurface key={`${serial}:${surfaceSession}`} serial={serial} running={popupRunning} snapshotSrc={snapshotSrc} emptyLabel="Start the stream in this pop-out window to mirror the connected device." maxDisplayWidth={null} minDisplayHeight={0} fitToContainer interactive />
+        </div>
       </div>
     </div>
   )
@@ -8079,6 +8979,7 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
   const [wifiStatus, setWifiStatus] = useState(null)
   const [savePromptIp, setSavePromptIp] = useState(null)
   const [saveDeviceName, setSaveDeviceName] = useState('')
+  const [qrPairState, setQrPairState] = useState({ open: false, serviceName: '', password: '', qrDataUrl: '', status: '', paired: false })
 
   // prefillPairIp is set by Pair buttons in device/saved lists; applied immediately to pairIp
   function triggerPrefill(ip) {
@@ -8137,6 +9038,32 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
     onRecordSavedHistory?.({ type: 'delete', label: 'Cleared all saved devices' })
   }
 
+  async function tryAutoConnectHost(host) {
+    const cleanHost = String(host || '').trim()
+    if (!cleanHost) return null
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const mdns = await invoke('run_adb', { args: ['mdns', 'services'] }).catch(() => null)
+        const mdnsOutput = [mdns?.stdout, mdns?.stderr].filter(Boolean).join('\n')
+        const escapedHost = cleanHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const match = mdnsOutput.match(new RegExp(`_adb-tls-connect\\._tcp\\s+(${escapedHost}:\\d+)`, 'i'))
+        if (match?.[1]) {
+          const target = match[1].trim()
+          const connectRes = await invoke('run_adb', { args: ['connect', target] })
+          const rawOut = [connectRes.stdout, connectRes.stderr].filter(Boolean).map(value => value.trim()).join('\n').trim() || 'No output'
+          if (/connected|already connected/i.test(rawOut) && !/unable|failed/i.test(rawOut)) {
+            setConnectIp(target)
+            return { target, rawOut }
+          }
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 600))
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+
   async function wifiConnect() {
     if (!connectIp.trim()) return
     setWifiStatus('Connecting…')
@@ -8174,14 +9101,118 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
     const importedTarget = pairIp.trim()
     setConnectIp(importedTarget)
     onRecordSavedHistory?.({ type: 'pair', label: `Paired with ${pairIp.trim()}` })
+    const autoConnect = await tryAutoConnectHost(importedTarget.split(':')[0])
+    if (autoConnect?.target) {
+      setWifiStatus(`Paired successfully and connected automatically.\n\nADB pair output:\n${rawOut}\n\nADB connect output:\n${autoConnect.rawOut}`)
+      onRecordSavedHistory?.({ type: 'connect', label: `Connected to ${autoConnect.target}` })
+      return
+    }
     setWifiStatus(`Paired successfully.\n\nADB output:\n${rawOut}\n\nThe Connect field now uses the exact host:port imported from your phone. If Wireless Debugging shows a different connect port on the device, update it there before clicking Connect.`)
   }
+
+  function closeQrPairModal() {
+    setQrPairState(current => ({
+      open: false,
+      serviceName: '',
+      password: '',
+      qrDataUrl: current.qrDataUrl,
+      status: '',
+      paired: false,
+    }))
+  }
+
+  async function openQrPairModal() {
+    const serviceName = `studio-${randomAdbQrToken(10)}`
+    const password = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')
+    const qrDataUrl = await QRCode.toDataURL(createAdbQrPayload(serviceName, password), {
+      margin: 1,
+      width: 280,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#f5f5f5',
+        light: '#101014',
+      },
+    })
+    setQrPairState({
+      open: true,
+      serviceName,
+      password,
+      qrDataUrl,
+      status: 'Waiting for your phone to scan the QR code…',
+      paired: false,
+    })
+  }
+
+  useEffect(() => {
+    if (!qrPairState.open || !qrPairState.serviceName || !qrPairState.password || qrPairState.paired) return undefined
+    let cancelled = false
+    let timerId = null
+
+    const pollQrPairing = async () => {
+      if (cancelled) return
+      try {
+        await invoke('run_adb', { args: ['start-server'] }).catch(() => null)
+        const mdns = await invoke('run_adb', { args: ['mdns', 'services'] })
+        const mdnsOutput = [mdns.stdout, mdns.stderr].filter(Boolean).join('\n')
+        const escapedServiceName = qrPairState.serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const match = mdnsOutput.match(new RegExp(`^\\s*${escapedServiceName}\\s+_adb-tls-pairing\\._tcp\\s+(\\S+)$`, 'm'))
+
+        if (!match) {
+          setQrPairState(current => current.open ? { ...current, status: 'QR shown. Scan it with the phone, then keep this window open while Toolkit waits for the pairing service…' } : current)
+          timerId = window.setTimeout(pollQrPairing, 1500)
+          return
+        }
+
+        const target = match[1].trim()
+        setQrPairState(current => current.open ? { ...current, status: `Phone detected. Pairing with ${target}…` } : current)
+        const pairRes = await invoke('run_adb', { args: ['pair', target, qrPairState.password] })
+        const pairOutput = [pairRes.stdout, pairRes.stderr].filter(Boolean).map(value => value.trim()).join('\n').trim() || 'No output'
+        const paired = /successfully paired|paired to|pairing successful/i.test(pairOutput)
+
+        if (!paired) {
+          setQrPairState(current => current.open ? { ...current, status: `QR pairing failed.\n\nADB output:\n${pairOutput}` } : current)
+          timerId = window.setTimeout(pollQrPairing, 2000)
+          return
+        }
+
+        const autoConnect = await tryAutoConnectHost(target.split(':')[0])
+        const status = autoConnect?.target
+          ? `QR pairing succeeded and connected automatically.\n\nADB pair output:\n${pairOutput}\n\nADB connect output:\n${autoConnect.rawOut}`
+          : `QR pairing succeeded.\n\nADB output:\n${pairOutput}\n\nIf the device does not auto-connect, use Connect with the Wireless debugging IP:port from the phone.`
+        setQrPairState(current => current.open ? { ...current, paired: true, status } : current)
+        setWifiStatus(status)
+        if (autoConnect?.target) {
+          setConnectIp(autoConnect.target)
+          onRecordSavedHistory?.({ type: 'connect', label: `Connected to ${autoConnect.target}` })
+        }
+        onRecordSavedHistory?.({ type: 'pair', label: `Paired with QR code via ${qrPairState.serviceName}` })
+      } catch (error) {
+        setQrPairState(current => current.open ? { ...current, status: `QR pairing check failed: ${error}` } : current)
+        timerId = window.setTimeout(pollQrPairing, 2000)
+      }
+    }
+
+    pollQrPairing()
+    return () => {
+      cancelled = true
+      if (timerId) window.clearTimeout(timerId)
+    }
+  }, [qrPairState.open, qrPairState.serviceName, qrPairState.password, qrPairState.paired, onRecordSavedHistory])
+
+  useEffect(() => {
+    return () => {
+      if (qrPairState.qrDataUrl) {
+        URL.revokeObjectURL?.(qrPairState.qrDataUrl)
+      }
+    }
+  }, [qrPairState.qrDataUrl])
 
   if (platform === 'android') {
     return <AndroidDeviceHome device={selected} props={props} loading={loading} onOpenPanel={onOpenPanel} />
   }
 
   return (
+    <>
     <div className="devices-panel">
       <div className="devices-list">
         {/* SAVED DEVICES */}
@@ -8372,6 +9403,7 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
                     onChange={e => setPairCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && wifiPair()}
                     style={{ ...inputStyle, width: 110, flexShrink: 0 }} />
                   <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={wifiPair}>Pair</button>
+                  <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={openQrPairModal}>QR Pair</button>
                 </div>
               </div>
               {/* Test ADB Connection */}
@@ -8429,6 +9461,82 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
           savedDevices={savedDevices} onSaveDevice={onSaveDevice} />
       </div>
     </div>
+    {qrPairState.open && (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.56)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          zIndex: 1000,
+        }}
+        onClick={closeQrPairModal}
+      >
+        <div
+          style={{
+            width: 'min(520px, 100%)',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: '0 24px 80px rgba(0,0,0,0.4)',
+            padding: 20,
+          }}
+          onClick={event => event.stopPropagation()}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 'var(--font-bold)', color: 'var(--text-primary)', marginBottom: 4 }}>
+                Pair with QR Code
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                On the phone, open <strong>Wireless debugging</strong>, choose <strong>Pair device with QR code</strong>, then scan this code.
+              </div>
+            </div>
+            <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }} onClick={closeQrPairModal}>
+              Close
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' }}>
+            <div style={{
+              background: '#101014',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <img src={qrPairState.qrDataUrl} alt="ADB pairing QR code" style={{ width: '100%', maxWidth: 280, borderRadius: 12, display: 'block' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                Session
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 12 }}>
+                Toolkit generated a temporary ADB QR pairing session and is waiting for the phone to request it over mDNS.
+              </div>
+              <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Service Name</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono','Courier New',monospace", wordBreak: 'break-all' }}>{qrPairState.serviceName}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Shared Secret</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono','Courier New',monospace", wordBreak: 'break-all' }}>{qrPairState.password}</div>
+                </div>
+              </div>
+              <pre style={{ margin: 0, minHeight: 140, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono','Courier New',monospace", fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                {qrPairState.status}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -9937,7 +11045,7 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
       <div className="panel-header-row">
         <div style={{ minWidth: 0 }}>
           <div className="panel-header-accent" />
-          <h1 className="panel-header">{isAndroid ? 'Shell & Logs' : 'ADB &amp; Shell'}</h1>
+          <h1 className="panel-header">{isAndroid ? 'Shell & Logs' : 'ADB & Shell'}</h1>
         </div>
         {noDevice && (
           <button className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', flexShrink: 0 }} onClick={onNavigateToDevices}>
@@ -11729,6 +12837,136 @@ async function restoreToolkitBackup({ serial, backup }) {
   }
 }
 
+function parseContentQueryRows(text) {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('Row:'))
+    .map(line => {
+      const body = line.replace(/^Row:\s*\d+\s*/, '')
+      const matches = [...body.matchAll(/([A-Za-z0-9_]+)=/g)]
+      const row = {}
+      matches.forEach((match, index) => {
+        const key = match[1]
+        const valueStart = match.index + match[0].length
+        const valueEnd = index + 1 < matches.length ? matches[index + 1].index : body.length
+        let value = body.slice(valueStart, valueEnd).replace(/^,\s*/, '').replace(/,\s*$/, '').trim()
+        if (value === 'NULL') value = null
+        row[key] = value
+      })
+      return row
+    })
+}
+
+function buildContentInsertArgs(uri, row, fieldSpecs) {
+  const args = ['shell', 'content', 'insert', '--uri', uri]
+  fieldSpecs.forEach(spec => {
+    const value = row[spec.key]
+    if (value == null || value === '') return
+    const type = spec.type === 'number'
+      ? (/^-?\d+$/.test(String(value)) ? 'l' : null)
+      : 's'
+    if (!type) return
+    args.push('--bind', `${spec.key}:${type}:${String(value)}`)
+  })
+  return args
+}
+
+async function backupNoRootDataset({ serial, kind, label, adbArgs, parse = true }) {
+  const res = await invoke('run_adb', { args: ['-s', serial, ...adbArgs] })
+  const text = [res.stdout, res.stderr].filter(Boolean).join('\n').trim()
+  if (!text) throw new Error('No data returned from the device')
+
+  const dl = await downloadDir()
+  const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups', 'No-Root Data')
+  await mkdir(root, { recursive: true })
+  const safeSerial = (serial || 'device').replace(/[^\w.-]+/g, '_')
+  const file = await pathJoin(root, `${kind}_${safeSerial}_${Date.now()}.json`)
+  const payload = {
+    kind,
+    label,
+    createdAt: new Date().toISOString(),
+    serial,
+    rows: parse ? parseContentQueryRows(text) : [],
+    raw: text,
+  }
+  await writeTextFile(file, JSON.stringify(payload, null, 2))
+  return { file, payload }
+}
+
+async function restoreSmsRows(serial, rows) {
+  const fieldSpecs = [
+    { key: 'address', type: 'string' },
+    { key: 'body', type: 'string' },
+    { key: 'date', type: 'number' },
+    { key: 'type', type: 'number' },
+    { key: 'read', type: 'number' },
+    { key: 'seen', type: 'number' },
+    { key: 'service_center', type: 'string' },
+    { key: 'subject', type: 'string' },
+    { key: 'status', type: 'number' },
+  ]
+  let restored = 0
+  for (const row of rows) {
+    const args = buildContentInsertArgs('content://sms', row, fieldSpecs)
+    if (args.length <= 4) continue
+    const res = await invoke('run_adb', { args: ['-s', serial, ...args] })
+    if (!adbCommandWorked(res)) throw new Error(res.stderr?.trim() || 'SMS restore failed')
+    restored += 1
+  }
+  return restored
+}
+
+async function restoreCallLogRows(serial, rows) {
+  const fieldSpecs = [
+    { key: 'number', type: 'string' },
+    { key: 'date', type: 'number' },
+    { key: 'duration', type: 'number' },
+    { key: 'type', type: 'number' },
+    { key: 'new', type: 'number' },
+    { key: 'name', type: 'string' },
+    { key: 'numbertype', type: 'number' },
+    { key: 'numberlabel', type: 'string' },
+  ]
+  let restored = 0
+  for (const row of rows) {
+    const args = buildContentInsertArgs('content://call_log/calls', row, fieldSpecs)
+    if (args.length <= 4) continue
+    const res = await invoke('run_adb', { args: ['-s', serial, ...args] })
+    if (!adbCommandWorked(res)) throw new Error(res.stderr?.trim() || 'Call log restore failed')
+    restored += 1
+  }
+  return restored
+}
+
+async function restoreContactRows(serial, rows) {
+  let restored = 0
+  for (const row of rows) {
+    const name = row.display_name || row.display_name_primary || row.name
+    if (!name) continue
+    const createRaw = await invoke('run_adb', {
+      args: ['-s', serial, 'shell', 'content', 'insert', '--uri', 'content://com.android.contacts/raw_contacts'],
+    })
+    const rawOutput = [createRaw.stdout, createRaw.stderr].filter(Boolean).join('\n').trim()
+    const rawIdMatch = rawOutput.match(/\/(\d+)\s*$/)
+    if (!rawIdMatch) throw new Error(rawOutput || 'Failed to create contact shell record')
+    const rawContactId = rawIdMatch[1]
+    const insertName = await invoke('run_adb', {
+      args: [
+        '-s', serial,
+        'shell', 'content', 'insert',
+        '--uri', 'content://com.android.contacts/data',
+        '--bind', `raw_contact_id:l:${rawContactId}`,
+        '--bind', 'mimetype:s:vnd.android.cursor.item/name',
+        '--bind', `data1:s:${name}`,
+      ],
+    })
+    if (!adbCommandWorked(insertName)) throw new Error(insertName.stderr?.trim() || 'Contact restore failed')
+    restored += 1
+  }
+  return restored
+}
+
 function AppCard({ pkg, serial, device, androidVersion, addToast, onRemove }) {
   const [busy, setBusy] = useState(null) // 'launch' | 'uninstall' | 'clear' | 'backup'
 
@@ -12077,6 +13315,7 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
   const [backupsRoot, setBackupsRoot] = useState(null)
   const [restoring, setRestoring] = useState({}) // pkg → true
   const [exporting, setExporting] = useState({})
+  const [restoringNoRoot, setRestoringNoRoot] = useState({})
   const [packages, setPackages]   = useState([])
   const [packagesLoading, setPackagesLoading] = useState(false)
   const [backupTarget, setBackupTarget] = useState('')
@@ -12200,27 +13439,57 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
     await invoke('open_in_finder', { path })
   }
 
-  async function exportNoRootData(key, label, adbArgs, ext = 'txt') {
+  async function backupNoRootDataCard(key, label, adbArgs, options = {}) {
     if (noDevice) {
-      addToast('Connect a device to export data', 'error')
+      addToast('Connect a device to back up data', 'error')
       return
     }
     setExporting(prev => ({ ...prev, [key]: true }))
     try {
-      const res = await invoke('run_adb', { args: ['-s', serial, ...adbArgs] })
-      const text = [res.stdout, res.stderr].filter(Boolean).join('\n').trim()
-      if (!text) throw new Error('No data returned from the device')
-      const dl = await downloadDir()
-      const root = await pathJoin(dl, 'Nocturnal Toolkit', 'Backups', 'No-Root Data')
-      await mkdir(root, { recursive: true })
-      const safeSerial = (serial || 'device').replace(/[^\w.-]+/g, '_')
-      const file = await pathJoin(root, `${key}_${safeSerial}_${Date.now()}.${ext}`)
-      await writeTextFile(file, text)
-      addToast(`${label} exported`, 'success')
+      await backupNoRootDataset({
+        serial,
+        kind: key,
+        label,
+        adbArgs,
+        parse: options.parse !== false,
+      })
+      addToast(`${label} backed up`, 'success')
     } catch (e) {
-      addToast(`${label} export failed: ${String(e).slice(0, 90)}`, 'error')
+      addToast(`${label} backup failed: ${String(e).slice(0, 90)}`, 'error')
     }
     setExporting(prev => { const next = { ...prev }; delete next[key]; return next })
+  }
+
+  async function restoreNoRootDataCard(key, label) {
+    if (noDevice) {
+      addToast('Connect a device to restore data', 'error')
+      return
+    }
+    if (key === 'device_info') {
+      addToast('Device info backups are reference snapshots and cannot be restored to Android.', 'error')
+      return
+    }
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (!picked || Array.isArray(picked)) return
+    setRestoringNoRoot(prev => ({ ...prev, [key]: true }))
+    try {
+      const text = await readTextFile(picked)
+      const payload = JSON.parse(text)
+      if (payload?.kind !== key || !Array.isArray(payload?.rows)) {
+        throw new Error(`This file is not a ${label} backup.`)
+      }
+      let restored = 0
+      if (key === 'sms') restored = await restoreSmsRows(serial, payload.rows)
+      if (key === 'calls') restored = await restoreCallLogRows(serial, payload.rows)
+      if (key === 'contacts') restored = await restoreContactRows(serial, payload.rows)
+      addToast(`${label} restored${restored ? ` (${restored} items)` : ''}`, 'success')
+    } catch (e) {
+      addToast(`${label} restore failed: ${String(e).slice(0, 100)}`, 'error')
+    }
+    setRestoringNoRoot(prev => { const next = { ...prev }; delete next[key]; return next })
   }
 
   return (
@@ -12278,7 +13547,7 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
             Backup & Restore
           </div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Create and restore toolkit-managed app backups from one place. App backups include APK splits, OBB files, and shared app folders that ADB can access, alongside no-root exports like SMS, call logs, contacts, and device info.
+            Create and restore toolkit-managed app backups from one place. App backups include APK splits, OBB files, and shared app folders that ADB can access, alongside no-root backups for SMS, call logs, contacts, and device info snapshots.
           </div>
         </div>
 
@@ -12347,29 +13616,44 @@ function BackupsPanel({ device, deviceProps, onNavigateToDevices, onOpenPanel })
 
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px', marginBottom: 18 }}>
           <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
-            No-Root Data Export
+            No-Root Data Backup
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
-            These exports use ADB-accessible content providers and system services. They do not require root, but device firmware can still limit what is exposed.
+            These backups use ADB-accessible content providers and system services. They do not require root, but device firmware can still limit what is exposed. SMS and call logs can be restored from the saved JSON backups. Contacts restore uses a basic name-only import path.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
             {[
-              { key: 'sms', label: 'Export SMS', desc: 'Saves SMS and MMS metadata from the device message database.', args: ['shell', 'content', 'query', '--uri', 'content://sms'] },
-              { key: 'calls', label: 'Export Call Log', desc: 'Saves the call history that Android exposes over ADB.', args: ['shell', 'content', 'query', '--uri', 'content://call_log/calls'] },
-              { key: 'contacts', label: 'Export Contacts', desc: 'Exports the visible contacts list from the contacts provider.', args: ['shell', 'content', 'query', '--uri', 'content://com.android.contacts/contacts'] },
-              { key: 'device_info', label: 'Export Device Info', desc: 'Saves device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo "\\n--- BATTERY ---" && dumpsys battery && echo "\\n--- STORAGE ---" && df -h'] },
+              { key: 'sms', label: 'SMS Backup', desc: 'Backs up SMS and MMS metadata from the device message database.', args: ['shell', 'content', 'query', '--uri', 'content://sms'] },
+              { key: 'calls', label: 'Call Log Backup', desc: 'Backs up the call history that Android exposes over ADB.', args: ['shell', 'content', 'query', '--uri', 'content://call_log/calls'] },
+              { key: 'contacts', label: 'Contacts Backup', desc: 'Backs up visible contact entries for a basic restore path.', args: ['shell', 'content', 'query', '--uri', 'content://com.android.contacts/contacts'] },
+              { key: 'device_info', label: 'Device Info Backup', desc: 'Backs up device props, battery status, and storage snapshots for reference.', args: ['shell', 'sh', '-c', 'getprop && echo "\\n--- BATTERY ---" && dumpsys battery && echo "\\n--- STORAGE ---" && df -h'], restoreable: false, parse: false },
             ].map(card => (
               <div key={card.key} style={{ padding: '12px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
                 <div style={{ fontSize: 13, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 5 }}>{card.label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>{card.desc}</div>
-                <button
-                  className="btn-ghost"
-                  style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
-                  disabled={noDevice || !!exporting[card.key]}
-                  onClick={() => exportNoRootData(card.key, card.label, card.args)}
-                >
-                  {exporting[card.key] ? 'Exporting…' : card.label}
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn-ghost"
+                    style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
+                    disabled={noDevice || !!exporting[card.key]}
+                    onClick={() => backupNoRootDataCard(card.key, card.label, card.args, { parse: card.parse })}
+                  >
+                    {exporting[card.key] ? 'Backing Up…' : `Back Up ${card.key === 'device_info' ? 'Snapshot' : ''}`.trim()}
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    style={{ padding: '5px 12px', fontSize: 'var(--text-xs)' }}
+                    disabled={noDevice || !!restoringNoRoot[card.key] || card.restoreable === false}
+                    onClick={() => restoreNoRootDataCard(card.key, card.label)}
+                  >
+                    {restoringNoRoot[card.key] ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+                {card.restoreable === false && (
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 8 }}>
+                    Device info snapshots are backup-only and cannot be restored onto Android.
+                  </div>
+                )}
               </div>
             ))}
           </div>
