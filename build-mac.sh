@@ -27,6 +27,12 @@ if [ "$BUILD_FLAVOR" = "nightly" ]; then
 else
   FILE_VERSION="$APP_VERSION"
 fi
+
+# Avoid duplicate beta markers in artifact names like:
+# Android-Toolkit-Beta_3.0.0-beta_arm64.dmg
+if [ "$BUILD_FLAVOR" = "beta" ]; then
+  FILE_VERSION="${FILE_VERSION%-beta}"
+fi
 export VITE_APP_BUILD_VERSION="$FILE_VERSION"
 DMG_NAME="${APP_NAME// /-}_${FILE_VERSION}_${APP_ARCH}.dmg"
 DMG_PATH="$ROOT_DIR/$DMG_NAME"

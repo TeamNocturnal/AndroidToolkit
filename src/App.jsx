@@ -33,7 +33,7 @@ const UPDATE_CHANNELS = [
 function normalizeStylePreset(value) {
   if (value === 'tahoe') return 'modern'
   if (STYLE_PRESETS.some(option => option.id === value)) return value
-  return 'modern'
+  return 'classic'
 }
 
 function normalizeVersionTag(version) {

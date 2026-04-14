@@ -25,9 +25,7 @@
 }
 
 [data-style="classic"] .app-backdrop {
-  background:
-    radial-gradient(circle at top right, rgba(84, 109, 168, 0.14), transparent 28%),
-    radial-gradient(circle at bottom center, rgba(255, 255, 255, 0.04), transparent 36%);
+  display: none;
 }
 
 [data-theme="light"] .app-backdrop {
@@ -1053,4 +1051,31 @@
   .titlebar-center {
     display: none;
   }
+}
+
+/* Keep classic completely flat even when global/light styles apply later */
+[data-style="classic"] .theme-segment-button.active,
+[data-style="classic"] .utility-bar,
+[data-style="classic"] .utility-bar-fill,
+[data-style="classic"] .sidebar-brand-row,
+[data-style="classic"] .sidebar-section-label,
+[data-style="classic"] .sidebar-section-label:hover,
+[data-style="classic"] .sidebar-section-label.open,
+[data-style="classic"] .sidebar-device-card,
+[data-style="classic"] .sidebar-channel-select,
+[data-style="classic"] .sidebar-update-button.has-update,
+[data-style="classic"][data-theme="light"] .theme-segment-button.active,
+[data-style="classic"][data-theme="light"] .utility-bar,
+[data-style="classic"][data-theme="light"] .utility-bar-fill,
+[data-style="classic"][data-theme="light"] .sidebar-brand-row,
+[data-style="classic"][data-theme="light"] .sidebar-section-label,
+[data-style="classic"][data-theme="light"] .sidebar-section-label:hover,
+[data-style="classic"][data-theme="light"] .sidebar-section-label.open,
+[data-style="classic"][data-theme="light"] .sidebar-device-card,
+[data-style="classic"][data-theme="light"] .sidebar-channel-select,
+[data-style="classic"][data-theme="light"] .sidebar-update-button.has-update {
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background-image: none;
 }
