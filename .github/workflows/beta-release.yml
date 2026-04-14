@@ -77,7 +77,7 @@ jobs:
               repo,
               tag_name: tag,
               target_commitish: context.sha,
-              name: `v${version} beta-${stamp}`,
+              name: `${tag}`,
               body,
               draft: false,
               prerelease: true,
