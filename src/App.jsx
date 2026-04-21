@@ -1471,6 +1471,77 @@ const FIRE_TV_AD_PKGS = [
   { id: 'com.amazon.bueller',     label: 'Alexa Suggestions',      desc: 'Alexa-based ad suggestions' },
 ]
 
+const TV_PACKAGE_SNAPSHOT_STORAGE_KEY = 'nocturnal_tv_package_snapshots'
+
+const TV_STOCK_LAUNCHERS = [
+  {
+    id: 'firetv',
+    label: 'Fire TV Stock Launcher',
+    packages: ['com.amazon.tv.launcher'],
+    warning: 'Only disable this after a custom launcher is installed and set as default.',
+  },
+  {
+    id: 'googletv',
+    label: 'Google / Android TV Stock Launcher',
+    packages: ['com.google.android.apps.tv.launcherx', 'com.google.android.tvlauncher', 'com.google.android.leanbacklauncher'],
+    warning: 'Disabling the stock Google TV launcher can remove the normal home experience until another launcher takes over.',
+  },
+]
+
+const TV_DEBLOAT_PROFILES = [
+  {
+    id: 'firetv-safe',
+    title: 'Fire TV Safe Cleanup',
+    devices: ['firetv'],
+    tone: 'recommended',
+    desc: 'Disables Amazon extras that are usually safe to turn off first.',
+    packages: FIRE_TV_AMAZON_BLOAT.map(item => item.id),
+  },
+  {
+    id: 'firetv-ads',
+    title: 'Fire TV Ads & Tracking',
+    devices: ['firetv'],
+    tone: 'advanced',
+    desc: 'Targets Fire TV ad and tracking packages, including recommendation surfaces.',
+    packages: [...new Set([...FIRE_TV_TRACKING.map(item => item.id), ...FIRE_TV_AD_PKGS.map(item => item.id)])],
+  },
+  {
+    id: 'googletv-recommendations',
+    title: 'Google TV Recommendations',
+    devices: ['androidtv'],
+    tone: 'recommended',
+    desc: 'Disables recommendation rails and bundled media recommendation apps without touching the core launcher package.',
+    packages: [
+      'com.google.android.tvrecommendations',
+      'com.google.android.leanbackrecommendations',
+      'com.google.android.videos',
+      'com.google.android.music',
+      'com.google.android.apps.youtube.music.tv',
+      'com.google.android.play.games',
+      'com.google.android.kidslauncher',
+    ],
+  },
+]
+
+function readTvPackageSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TV_PACKAGE_SNAPSHOT_STORAGE_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeTvPackageSnapshots(items) {
+  localStorage.setItem(TV_PACKAGE_SNAPSHOT_STORAGE_KEY, JSON.stringify(items.slice(0, 30)))
+}
+
+function saveTvPackageSnapshot(snapshot) {
+  const next = [snapshot, ...readTvPackageSnapshots()].slice(0, 30)
+  writeTvPackageSnapshots(next)
+  return next
+}
+
 const TV_LAUNCHERS = [
   {
     id: 'projectivy',
@@ -1593,19 +1664,45 @@ async function safeConfirmDialog(message, options) {
   }
 }
 
+function normalizeTvDeviceGroup(device) {
+  const model = String(device?.model || '').toLowerCase()
+  const product = String(device?.product || '').toLowerCase()
+  if (/fire|amazon/.test(model) || /fire|amazon/.test(product)) return 'firetv'
+  return 'androidtv'
+}
+
 function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device }) {
   const model = String(device?.model || '').toLowerCase()
   const product = String(device?.product || '').toLowerCase()
   const isFireTv = /fire/.test(model) || /fire/.test(product) || /amazon/.test(model)
+  const deviceGroup = normalizeTvDeviceGroup(device)
+  const [snapshots, setSnapshots] = useState(() => readTvPackageSnapshots().filter(item => item.serial === serial))
 
-  async function runPackageBatch(action, packages, label) {
-    if (!serial || noDevice || running || !packages.length) return
-    const ok = await safeConfirmDialog(`${label} ${packages.length} package(s)?`)
+  useEffect(() => {
+    setSnapshots(readTvPackageSnapshots().filter(item => item.serial === serial))
+  }, [serial])
+
+  async function runPackageBatch(action, packages, label, options = {}) {
+    const uniquePackages = [...new Set(packages.filter(Boolean))]
+    if (!serial || noDevice || running || !uniquePackages.length) return
+    const ok = await safeConfirmDialog(`${label} ${uniquePackages.length} package(s)?`)
     if (!ok) return
+    if (action === 'disable' && options.snapshot !== false) {
+      const next = saveTvPackageSnapshot({
+        id: crypto.randomUUID(),
+        serial,
+        deviceLabel: device?.model || serial,
+        label,
+        action,
+        packages: uniquePackages,
+        createdAt: new Date().toISOString(),
+      })
+      setSnapshots(next.filter(item => item.serial === serial))
+    }
     setRunning(true)
-    append(`$ ${label} ${packages.length} package(s)`)
+    append(`$ ${label} ${uniquePackages.length} package(s)`)
     try {
-      for (const pkg of packages) {
+      for (const pkg of uniquePackages) {
         const args = action === 'restore'
           ? ['-s', serial, 'shell', 'pm', 'enable', '--user', '0', pkg]
           : ['-s', serial, 'shell', 'pm', 'disable-user', '--user', '0', pkg]
@@ -1622,6 +1719,9 @@ function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device 
 
   const amazonExtras = FIRE_TV_AMAZON_BLOAT.map(item => item.id)
   const amazonTracking = FIRE_TV_TRACKING.map(item => item.id)
+  const matchingProfiles = TV_DEBLOAT_PROFILES.filter(profile => profile.devices.includes(deviceGroup))
+  const recommendationProfile = matchingProfiles.find(profile => /recommend/i.test(profile.id))
+  const latestSnapshot = snapshots[0] || null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1636,6 +1736,76 @@ function TvDebloatPanel({ serial, noDevice, running, setRunning, append, device 
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           Review installed packages with TV-aware recommendations, then disable, restore, or remove user-0 packages in batches. This tab is tuned for Fire TV, Google TV, ONN, Shield, and other Android TV devices.
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+        <div style={{ fontSize: 12, fontWeight: 'var(--font-bold)', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-teal)', marginBottom: 8 }}>
+          TV Presets
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+          These presets improve the reference toolkit&apos;s process by saving a rollback snapshot before they disable packages. Use them for the first cleanup pass, then fine-tune in the workbench below.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 12 }}>
+          {matchingProfiles.map(profile => (
+            <div key={profile.id} style={{ padding: '12px', borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)' }}>{profile.title}</div>
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 'var(--font-bold)',
+                  padding: '2px 6px',
+                  borderRadius: 99,
+                  background: profile.tone === 'advanced' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                  color: profile.tone === 'advanced' ? 'var(--accent-yellow)' : 'var(--accent-green)',
+                }}>
+                  {profile.tone === 'advanced' ? 'Advanced' : 'Safe First'}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>
+                {profile.desc}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button className="btn-primary" style={{ fontSize: 10, padding: '4px 10px' }} disabled={noDevice || running} onClick={() => runPackageBatch('disable', profile.packages, profile.title)}>
+                  Apply Preset
+                </button>
+                <button className="btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} disabled={noDevice || running} onClick={() => runPackageBatch('restore', profile.packages, `Restore ${profile.title}`, { snapshot: false })}>
+                  Restore
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Recommendation Removal Wizard</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 8 }}>
+            This targets ad and recommendation surfaces without disabling the core launcher package outright. It is the safer version of the reference toolkit&apos;s “remove recommendations” flow.
+          </div>
+          {recommendationProfile ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn-warning" style={{ fontSize: 10, padding: '4px 10px' }} disabled={noDevice || running} onClick={() => runPackageBatch('disable', recommendationProfile.packages, recommendationProfile.title)}>
+                Remove Recommendations
+              </button>
+              <button className="btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} disabled={noDevice || running} onClick={() => runPackageBatch('restore', recommendationProfile.packages, `Restore ${recommendationProfile.title}`, { snapshot: false })}>
+                Restore Recommendations
+              </button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No recommendation preset is defined for this device group yet.</div>
+          )}
+        </div>
+        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 11, fontWeight: 'var(--font-semibold)', color: 'var(--text-primary)', marginBottom: 4 }}>Rollback Snapshot</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: latestSnapshot ? 8 : 0 }}>
+            {latestSnapshot
+              ? `Latest snapshot: ${latestSnapshot.label} • ${new Date(latestSnapshot.createdAt).toLocaleString()}`
+              : 'No TV preset snapshot saved yet. The next preset you run will save one automatically.'}
+          </div>
+          {latestSnapshot && (
+            <button className="btn-ghost" style={{ fontSize: 10, padding: '4px 10px' }} disabled={noDevice || running} onClick={() => runPackageBatch('restore', latestSnapshot.packages, `Restore snapshot: ${latestSnapshot.label}`, { snapshot: false })}>
+              Restore Latest Snapshot
+            </button>
+          )}
         </div>
       </div>
 
@@ -2563,6 +2733,128 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
       return r
     } catch (e) { tvAppend(`Error: ${e}\n`) }
     finally { setTvRunning(false) }
+  }
+  function tvNormalizeConnectTarget(value) {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    if (raw.includes(':')) return raw
+    return `${raw}:5555`
+  }
+  async function tvPackageExists(pkg) {
+    if (!serial || !pkg) return false
+    try {
+      const r = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'path', pkg] })
+      return (r.stdout || '').includes('package:')
+    } catch {
+      return false
+    }
+  }
+  async function tvCheckAdbHealth() {
+    if (tvRunning) return
+    setTvRunning(true)
+    tvAppend('\n$ adb health-check\n')
+    try {
+      const version = await invoke('run_adb', { args: ['version'] })
+      tvAppend(`Version:\n${[version.stdout, version.stderr].filter(Boolean).join('\n').trim() || '(no output)'}\n`)
+      const start = await invoke('run_adb', { args: ['start-server'] })
+      tvAppend(`Start Server:\n${[start.stdout, start.stderr].filter(Boolean).join('\n').trim() || '(no output)'}\n`)
+      const devices = await invoke('run_adb', { args: ['devices'] })
+      tvAppend(`Connected Devices:\n${[devices.stdout, devices.stderr].filter(Boolean).join('\n').trim() || '(no output)'}\n`)
+    } catch (e) {
+      tvAppend(`Error: ${e}\n`)
+    } finally {
+      setTvRunning(false)
+    }
+  }
+  async function tvRestartAdbServer() {
+    if (tvRunning) return
+    setTvRunning(true)
+    tvAppend('\n$ adb kill-server && adb start-server\n')
+    try {
+      const kill = await invoke('run_adb', { args: ['kill-server'] })
+      tvAppend(`${[kill.stdout, kill.stderr].filter(Boolean).join('\n').trim() || 'ADB server stopped.'}\n`)
+      const start = await invoke('run_adb', { args: ['start-server'] })
+      tvAppend(`${[start.stdout, start.stderr].filter(Boolean).join('\n').trim() || 'ADB server started.'}\n`)
+    } catch (e) {
+      tvAppend(`Error: ${e}\n`)
+    } finally {
+      setTvRunning(false)
+    }
+  }
+  async function tvSafeDisableStockLauncher(stockId) {
+    const stock = TV_STOCK_LAUNCHERS.find(item => item.id === stockId)
+    if (!stock || !serial || tvRunning) return
+    const installedLauncher = TV_LAUNCHERS.find(item => item.pkg && tvLauncherInstalled[item.id] && item.homeActivity)
+    if (!installedLauncher) {
+      setTvLauncherToast('Install and detect a custom launcher first, then set it as default before disabling the stock launcher.')
+      setTimeout(() => setTvLauncherToast(null), 6000)
+      return
+    }
+    const launcherStillInstalled = await tvPackageExists(installedLauncher.pkg)
+    if (!launcherStillInstalled) {
+      setTvLauncherToast(`${installedLauncher.name} is not currently installed. Re-run Detect Installed first.`)
+      setTimeout(() => setTvLauncherToast(null), 6000)
+      return
+    }
+    const ok = await safeConfirmDialog(`Set ${installedLauncher.name} as the default launcher and disable ${stock.label}?\n\n${stock.warning}`)
+    if (!ok) return
+    saveTvPackageSnapshot({
+      id: crypto.randomUUID(),
+      serial,
+      deviceLabel: device?.model || serial,
+      label: `Launcher swap: ${stock.label}`,
+      action: 'disable',
+      packages: stock.packages,
+      createdAt: new Date().toISOString(),
+    })
+    setTvRunning(true)
+    try {
+      tvAppend(`\n$ Safe launcher handoff → ${installedLauncher.name}\n`)
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'cmd', 'package', 'set-home-activity', installedLauncher.homeActivity] })
+      await invoke('run_adb', { args: ['-s', serial, 'shell', 'am', 'start', '-n', installedLauncher.homeActivity] }).catch(() => null)
+      for (const pkg of stock.packages) {
+        if (!await tvPackageExists(pkg)) {
+          tvAppend(`${pkg}: not installed, skipping\n`)
+          continue
+        }
+        const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'disable-user', '--user', '0', pkg] })
+        tvAppend(`${pkg}: ${[res.stdout, res.stderr].filter(Boolean).join('\n').trim() || 'disabled'}\n`)
+      }
+      setTvLauncherToast(`${installedLauncher.name} is now the safer default. Press Home to verify before leaving this screen.`)
+      setTimeout(() => setTvLauncherToast(null), 6000)
+    } catch (e) {
+      tvAppend(`Error: ${e}\n`)
+      setTvLauncherToast(`Launcher handoff failed: ${e}`)
+      setTimeout(() => setTvLauncherToast(null), 6000)
+    } finally {
+      setTvRunning(false)
+    }
+  }
+  async function tvRestoreStockLauncher(stockId) {
+    const stock = TV_STOCK_LAUNCHERS.find(item => item.id === stockId)
+    if (!stock || !serial || tvRunning) return
+    const ok = await safeConfirmDialog(`Re-enable packages for ${stock.label}?`)
+    if (!ok) return
+    setTvRunning(true)
+    try {
+      tvAppend(`\n$ Restore ${stock.label}\n`)
+      for (const pkg of stock.packages) {
+        if (!await tvPackageExists(pkg)) {
+          tvAppend(`${pkg}: not installed, skipping\n`)
+          continue
+        }
+        const res = await invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'enable', '--user', '0', pkg] })
+        tvAppend(`${pkg}: ${[res.stdout, res.stderr].filter(Boolean).join('\n').trim() || 'enabled'}\n`)
+      }
+      setTvLauncherToast(`${stock.label} packages restored. Press Home and choose the stock launcher if Android asks.`)
+      setTimeout(() => setTvLauncherToast(null), 6000)
+    } catch (e) {
+      tvAppend(`Error: ${e}\n`)
+      setTvLauncherToast(`Restore failed: ${e}`)
+      setTimeout(() => setTvLauncherToast(null), 6000)
+    } finally {
+      setTvRunning(false)
+    }
   }
   async function tvInstallFromUrl(id, url, filename) {
     if (!serial) { tvAppend('No device connected\n'); return }
@@ -4389,7 +4681,7 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                     style={{ flex: 1, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', fontSize: 11, fontFamily: "'JetBrains Mono','Courier New',monospace", color: 'var(--text-primary)' }}
                   />
                   <button className="btn-primary" style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }} disabled={tvRunning || !tvIp.trim()}
-                    onClick={() => tvRun(['connect', tvIp.trim()])}>
+                    onClick={() => tvRun(['connect', tvNormalizeConnectTarget(tvIp)])}>
                     Connect
                   </button>
                 </div>
@@ -4410,6 +4702,23 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
                     onClick={() => tvRun(['pair', tvPairIp.trim(), tvPairCode.trim()])}>
                     Pair
                   </button>
+                </div>
+                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 6 }}>ADB HEALTH & REPAIR</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 8 }}>
+                    The reference toolkit tells users to replace broken ADB binaries manually. Android Toolkit can at least verify the current ADB process, restart it cleanly, and send you straight to the official Platform-Tools download when needed.
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn-ghost" style={{ fontSize: 10, padding: '3px 10px' }} disabled={tvRunning} onClick={tvCheckAdbHealth}>
+                      Check ADB Health
+                    </button>
+                    <button className="btn-ghost" style={{ fontSize: 10, padding: '3px 10px' }} disabled={tvRunning} onClick={tvRestartAdbServer}>
+                      Restart ADB
+                    </button>
+                    <button className="btn-ghost" style={{ fontSize: 10, padding: '3px 10px' }} onClick={() => openUrl('https://developer.android.com/tools/releases/platform-tools')}>
+                      Official Platform-Tools ↗
+                    </button>
+                  </div>
                 </div>
               </div>
             </QuestCard>
@@ -4917,20 +5226,32 @@ function DeviceToolsPanel({ device, onNavigateToDevices, mode = 'all', platform 
 
               {/* Note */}
               <div style={{ marginBottom: 12, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                ℹ Some devices require disabling the stock launcher for the new one to take effect. Go to Manage Apps → find the stock launcher → Disable.
+                ℹ Some devices still need the stock launcher disabled before the custom launcher fully takes over. Use the safe handoff buttons below instead of disabling launcher packages blindly.
               </div>
 
-              {/* Reset to stock + refresh */}
+              {/* Stock launcher safety + refresh */}
               <div>
-                <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 6 }}>RESET TO STOCK</div>
+                <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 6 }}>STOCK LAUNCHER SAFETY</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button className="btn-warning" style={{ fontSize: 11, padding: '4px 10px' }} disabled={tvRunning || !serial} onClick={() => tvSafeDisableStockLauncher('firetv')}>
+                    Safe Disable Fire TV Stock
+                  </button>
+                  <button className="btn-warning" style={{ fontSize: 11, padding: '4px 10px' }} disabled={tvRunning || !serial} onClick={() => tvSafeDisableStockLauncher('googletv')}>
+                    Safe Disable Google TV Stock
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+                  These buttons verify that a custom launcher is installed first, set it as default, and save a rollback snapshot of the stock launcher packages before disabling them.
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 'var(--font-bold)', color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 6 }}>RESTORE STOCK</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} disabled={tvRunning || !serial}
-                    onClick={() => tvRun(['-s', serial, 'shell', 'cmd', 'package', 'set-home-activity', 'com.amazon.tv.launcher/.MainActivity'])}>
-                    Fire TV Stock
+                    onClick={() => tvRestoreStockLauncher('firetv')}>
+                    Restore Fire TV Stock
                   </button>
                   <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} disabled={tvRunning || !serial}
-                    onClick={() => tvRun(['-s', serial, 'shell', 'cmd', 'package', 'set-home-activity', 'com.google.android.leanback.launcher/.MainActivity'])}>
-                    Google TV Stock
+                    onClick={() => tvRestoreStockLauncher('googletv')}>
+                    Restore Google TV Stock
                   </button>
                   <button className="btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} disabled={tvLauncherChecking || !serial}
                     onClick={async () => {
