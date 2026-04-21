@@ -5849,12 +5849,6 @@ function TVPanel({ device, onNavigateToDevices }) {
   return <DeviceToolsPanel device={device} onNavigateToDevices={onNavigateToDevices} mode="tv" />
 }
 
-const SECURITY_CATEGORIES = [
-  { id: 'all', label: 'All' },
-  { id: 'security', label: 'Security' },
-  { id: 'vpn', label: 'VPN' },
-]
-
 const SECURITY_TRUST = {
   top: { label: 'Top Pick', color: 'var(--accent)', bg: 'rgba(168,85,247,0.16)' },
   trusted: { label: 'Trusted', color: 'var(--accent-green)', bg: 'rgba(34,197,94,0.16)' },
@@ -5879,170 +5873,6 @@ function playStoreSearchUrl(query) {
 function playStoreIntentUrl(query) {
   return `market://search?q=${encodeURIComponent(query)}&c=apps`
 }
-
-const SECURITY_APPS = [
-  {
-    id: 'varynx',
-    category: 'security',
-    source: 'play',
-    name: 'VARYNX-2.0',
-    icon: '🛡️',
-    badge: 'top',
-    tagline: 'Offline behavioral guardian',
-    pkg: '',
-    playQuery: 'VARYNX-2.0',
-    desc: 'Monitors for hardware skimmers, network anomalies, and device tampering without cloud telemetry.',
-    tags: ['Offline', 'Behavioral Guard', 'Tamper Checks'],
-  },
-  {
-    id: 'hypatia',
-    category: 'security',
-    source: 'fdroid',
-    name: 'Hypatia',
-    icon: '🧬',
-    badge: 'trusted',
-    tagline: 'Local FOSS malware scanner',
-    pkg: 'us.spotco.malwarescanner',
-    apkUrl: 'https://f-droid.org/repo/us.spotco.malwarescanner_314.apk',
-    pageUrl: 'https://f-droid.org/packages/us.spotco.malwarescanner/',
-    desc: 'Privacy-focused malware scanner that works 100% locally with near-zero battery drain.',
-    tags: ['F-Droid', 'Local Only', 'Low Battery'],
-  },
-  {
-    id: 'bitdefender',
-    category: 'security',
-    source: 'play',
-    name: 'Bitdefender Mobile Security',
-    icon: '🦠',
-    badge: 'premium',
-    tagline: 'Cloud-assisted mobile antivirus',
-    pkg: 'com.bitdefender.antivirus',
-    playQuery: 'Bitdefender Mobile Security',
-    desc: 'Cloud-based scanning, SMS scam alerts, and App Lock protection for Android devices.',
-    tags: ['Realtime', 'SMS Alerts', 'App Lock'],
-  },
-  {
-    id: 'norton',
-    category: 'security',
-    source: 'play',
-    name: 'Norton 360 Deluxe',
-    icon: '🧠',
-    badge: 'premium',
-    tagline: 'Identity and malware protection suite',
-    pkg: 'com.symantec.mobilesecurity',
-    playQuery: 'Norton 360 Deluxe',
-    desc: 'Dark Web Monitoring, phishing defense, malware scanning, and broader identity protection features.',
-    tags: ['Identity', 'Dark Web', 'Phishing'],
-  },
-  {
-    id: 'aegis',
-    category: 'security',
-    source: 'github',
-    name: 'Aegis Authenticator',
-    icon: '🔐',
-    badge: 'trusted',
-    tagline: 'Open-source 2FA vault',
-    pkg: 'com.beemdevelopment.aegis',
-    githubRepo: 'beemdevelopment/Aegis',
-    githubMatcher: name => /^aegis-.*\.apk$/i.test(name),
-    pageUrl: 'https://f-droid.org/packages/com.beemdevelopment.aegis/',
-    desc: 'Encrypted local backups, strong 2FA management, and a clean Material You-friendly interface.',
-    tags: ['2FA', 'Encrypted Backups', 'FOSS', 'GitHub'],
-  },
-  {
-    id: 'sophos',
-    category: 'security',
-    source: 'play',
-    name: 'Sophos Intercept X',
-    icon: '📶',
-    badge: 'trusted',
-    tagline: 'Free mobile security suite',
-    pkg: 'com.sophos.smsec',
-    playQuery: 'Sophos Intercept X',
-    desc: 'Free mobile security with a secure QR scanner, link checking, and Wi-Fi security advice.',
-    tags: ['Free', 'QR Scanner', 'Wi-Fi Advisor'],
-  },
-  {
-    id: 'protonvpn',
-    category: 'vpn',
-    source: 'github',
-    name: 'Proton VPN',
-    icon: '🟣',
-    badge: 'top',
-    tagline: 'Swiss no-logs VPN',
-    pkg: 'ch.protonvpn.android',
-    githubRepo: 'ProtonVPN/android-app',
-    githubMatcher: name => /\.apk$/i.test(name) && /direct-release/i.test(name),
-    desc: 'Open-source, no-logs VPN with Secure Core, strong privacy defaults, and a strong free tier.',
-    tags: ['No Logs', 'Secure Core', 'Free Tier', 'GitHub'],
-  },
-  {
-    id: 'mullvad',
-    category: 'vpn',
-    source: 'github',
-    name: 'Mullvad VPN',
-    icon: '🦊',
-    badge: 'trusted',
-    tagline: 'Maximum anonymity VPN',
-    pkg: 'net.mullvad.mullvadvpn',
-    githubRepo: 'mullvad/mullvadvpn-app',
-    githubMatcher: name => /^MullvadVPN-.*\.apk$/i.test(name) && !/\.asc$/i.test(name),
-    desc: 'Account-number-based VPN with flat pricing and a strong anonymity-first posture.',
-    tags: ['Anonymous', 'Flat Rate', 'Privacy', 'GitHub'],
-  },
-  {
-    id: 'surfshark',
-    category: 'vpn',
-    source: 'play',
-    name: 'Surfshark',
-    icon: '🌊',
-    badge: 'premium',
-    tagline: 'Family-friendly VPN with GPS spoofing',
-    pkg: 'com.surfshark.vpnclient.android',
-    playQuery: 'Surfshark',
-    desc: 'Unlimited simultaneous connections with GPS spoofing and a consumer-friendly multi-device setup.',
-    tags: ['Unlimited Devices', 'GPS Spoofing', 'Families'],
-  },
-  {
-    id: 'nordvpn',
-    category: 'vpn',
-    source: 'play',
-    name: 'NordVPN',
-    icon: '🌐',
-    badge: 'premium',
-    tagline: 'Fast VPN with DNS-layer protection',
-    pkg: 'com.nordvpn.android',
-    playQuery: 'NordVPN',
-    desc: 'Fast, feature-rich VPN with Threat Protection style DNS filtering for ads, trackers, and malware.',
-    tags: ['Fast', 'Threat Protection', 'DNS Filtering'],
-  },
-  {
-    id: 'ivpn',
-    category: 'vpn',
-    source: 'official',
-    name: 'IVPN',
-    icon: '🔒',
-    badge: 'trusted',
-    tagline: 'Audited privacy-hardened VPN',
-    pkg: 'net.ivpn.client',
-    browserUrl: 'https://www.ivpn.net/apps-android/',
-    desc: 'Multi-hop routing, transparent infrastructure, and a security-forward service design.',
-    tags: ['Multi-hop', 'Audited', 'Official Site'],
-  },
-  {
-    id: 'mozilla-vpn',
-    category: 'vpn',
-    source: 'play',
-    name: 'Mozilla VPN',
-    icon: '🦊',
-    badge: 'trusted',
-    tagline: 'Privacy-focused VPN from Mozilla',
-    pkg: 'org.mozilla.firefox.vpn',
-    playQuery: 'Mozilla VPN',
-    desc: 'Mozilla-backed VPN with no-logs positioning, multi-hop support, and a simple privacy-first experience.',
-    tags: ['Mozilla', 'Privacy', 'Multi-hop'],
-  },
-]
 
 function SecurityAppCard({ app, serial, noDevice, platform, status, onStatusChange, addToast }) {
   const [phase, setPhase] = useState('idle')
@@ -6229,20 +6059,35 @@ function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
   const [catFilter, setCatFilter] = useState('all')
   const [statuses, setStatuses] = useState({})
   const [toasts, setToasts] = useState([])
+  const [securityCatalog, setSecurityCatalog] = useState({ categories: [], apps: [] })
   const serial = device?.serial
   const noDevice = !device || device.status !== 'device'
+  const securityApps = securityCatalog.apps
+
+  useEffect(() => {
+    let cancelled = false
+    import('./data/securityCatalog.js').then(module => {
+      if (cancelled) return
+      setSecurityCatalog({
+        categories: module.SECURITY_CATEGORIES,
+        apps: module.SECURITY_APPS,
+      })
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!serial) {
       setStatuses({})
       return
     }
+    if (!securityApps.length) return
     const fresh = {}
-    SECURITY_APPS.forEach(app => {
+    securityApps.forEach(app => {
       if (app.pkg) fresh[app.id] = 'checking'
     })
     setStatuses(fresh)
-    SECURITY_APPS.forEach(app => {
+    securityApps.forEach(app => {
       if (!app.pkg) return
       invoke('run_adb', { args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', app.pkg] })
         .then(res => {
@@ -6251,7 +6096,7 @@ function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
         })
         .catch(() => setStatuses(s => ({ ...s, [app.id]: 'not_installed' })))
     })
-  }, [serial])
+  }, [serial, securityApps])
 
   function addToast(msg, type = 'success') {
     const id = crypto.randomUUID()
@@ -6260,10 +6105,10 @@ function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
   }
 
   const filtered = catFilter === 'all'
-    ? SECURITY_APPS
-    : SECURITY_APPS.filter(app => app.category === catFilter)
+    ? securityApps
+    : securityApps.filter(app => app.category === catFilter)
 
-  const directCount = SECURITY_APPS.filter(app => app.source === 'fdroid').length
+  const directCount = securityApps.filter(app => app.source === 'fdroid').length
 
   return (
     <div className="panel-content" style={{ position: 'relative', padding: 0 }}>
@@ -6296,7 +6141,7 @@ function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
-        {SECURITY_CATEGORIES.map(cat => (
+        {securityCatalog.categories.map(cat => (
           <button
             key={cat.id}
             className={catFilter === cat.id ? 'btn-primary' : 'btn-ghost'}
@@ -6309,6 +6154,9 @@ function SecurityHubPanel({ device, onNavigateToDevices, platform }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+        {!securityApps.length && (
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Loading security tools…</div>
+        )}
         {filtered.map(app => (
           <SecurityAppCard
             key={app.id}
@@ -11822,98 +11670,6 @@ function AdbLogsPanel({ device, onNavigateToDevices, platform }) {
 
 // ── App Stores panel ──────────────────────────────────────────────────────────
 
-const APP_STORES = [
-  {
-    id: 'fdroid', name: 'F-Droid', icon: '🟢',
-    tagline: 'Free & Open Source Android Apps',
-    trust: 'Most Trusted', category: 'privacy',
-    pkg: 'org.fdroid.fdroid',
-    apkUrl: 'https://f-droid.org/F-Droid.apk',
-    tags: ['Privacy', 'FOSS', 'No Ads', 'No Tracking'],
-    badge: 'RECOMMENDED', installType: 'direct',
-  },
-  {
-    id: 'aurora', name: 'Aurora Store', icon: '🔵',
-    tagline: 'Play Store without Google',
-    trust: 'Highly Trusted', category: 'privacy',
-    pkg: 'com.aurora.store',
-    apkUrl: 'https://f-droid.org/repo/com.aurora.store_73.apk',
-    tags: ['Play Store Mirror', 'No Google', 'Anonymous'],
-    badge: 'POPULAR', installType: 'direct',
-  },
-  {
-    id: 'aptoide', name: 'Aptoide', icon: '🟡',
-    tagline: 'Largest independent Android market',
-    trust: 'Trusted', category: 'general',
-    pkg: 'cm.aptoide.pt',
-    apkUrl: 'https://pool.apk.aptoide.com/carolyne-silva/cm-aptoide-pt-12060-71289867-2725e9ae81839a4ae69f8f362fc4d7e1.apk',
-    tags: ['Large Library', 'Decentralized', 'Region-Free'],
-    badge: null, installType: 'direct',
-  },
-  {
-    id: 'apkpure', name: 'APKPure', icon: '🔵',
-    tagline: 'Bypass region restrictions',
-    trust: 'Trusted', category: 'general',
-    pkg: 'com.apkpure.aegon',
-    apkUrl: 'https://d.apkpure.net/b/APK/com.apkpure.aegon?version=latest',
-    tags: ['Region-Free', 'Fast Updates'],
-    badge: null, installType: 'direct',
-  },
-  {
-    id: 'uptodown', name: 'Uptodown', icon: '⬇️',
-    tagline: 'Safe downloads with malware scanning',
-    trust: 'Highly Trusted', category: 'general',
-    pkg: 'com.uptodown',
-    apkUrl: 'https://d.apkpure.net/b/APK/com.uptodown?version=latest',
-    tags: ['Malware Scanning', 'Safe', 'Multi-Platform'],
-    badge: null, installType: 'direct',
-  },
-  {
-    id: 'taptap', name: 'TapTap', icon: '🎮',
-    tagline: 'Gaming-focused app store',
-    trust: 'Good', category: 'gaming',
-    pkg: 'com.taptap.global',
-    apkUrl: 'https://d.tap.io/latest/organic-direct_mobile',
-    tags: ['Games Only', 'Early Access'],
-    badge: 'GAMING', installType: 'direct',
-  },
-  {
-    id: 'epic', name: 'Epic Games', icon: '🎯',
-    tagline: 'Free games every week',
-    trust: 'Trusted', category: 'gaming',
-    pkg: 'com.epicgames.portal',
-    browserUrl: 'https://store.epicgames.com/en-US/mobile/android',
-    tags: ['Free Games', 'Premium Titles'],
-    badge: null, installType: 'browser',
-  },
-  {
-    id: 'galaxy', name: 'Galaxy Store', icon: '⭐',
-    tagline: 'Samsung-optimized apps',
-    trust: 'Highly Trusted', category: 'oem',
-    pkg: 'com.sec.android.app.samsungapps',
-    tags: ['Samsung Only', 'Official'],
-    badge: null, installType: 'preinstalled',
-  },
-  {
-    id: 'apkmirror', name: 'APKMirror', icon: '🔴',
-    tagline: 'Trusted APK archive',
-    trust: 'Most Trusted', category: 'general',
-    pkg: 'com.apkmirror.helper.prod',
-    browserUrl: 'https://www.apkmirror.com/apk/apkmirror/apkmirror-installer-official/',
-    tags: ['Trusted', 'Version Archive'],
-    badge: 'TRUSTED', installType: 'browser',
-  },
-]
-
-const STORE_CATEGORIES = [
-  { id: 'all',     label: 'All'     },
-  { id: 'privacy', label: 'Privacy' },
-  { id: 'general', label: 'General' },
-  { id: 'gaming',  label: 'Gaming'  },
-  { id: 'oem',     label: 'OEM'     },
-  { id: 'utility', label: 'Utility' },
-]
-
 const TRUST_CONFIG = {
   'Most Trusted':   { color: 'var(--accent-green)',  pct: 99 },
   'Highly Trusted': { color: 'var(--accent-teal)',   pct: 85 },
@@ -12949,17 +12705,32 @@ function AppStoresPanel({ device, onNavigateToDevices, platform }) {
   const [catFilter, setCatFilter] = useState('all')
   const [statuses, setStatuses]   = useState({}) // id → 'checking'|'installed'|'not_installed'
   const [toasts, setToasts]       = useState([]) // { id, msg, type }
+  const [storeCatalog, setStoreCatalog] = useState({ categories: [], stores: [] })
 
   const serial   = device?.serial
   const noDevice = !device || device.status !== 'device'
+  const appStores = storeCatalog.stores
+
+  useEffect(() => {
+    let cancelled = false
+    import('./data/appStores.js').then(module => {
+      if (cancelled) return
+      setStoreCatalog({
+        categories: module.STORE_CATEGORIES,
+        stores: module.APP_STORES,
+      })
+    })
+    return () => { cancelled = true }
+  }, [])
 
   // Check installed status for all stores when device connects
   useEffect(() => {
     if (!serial) { setStatuses({}); return }
+    if (!appStores.length) return
     const fresh = {}
-    APP_STORES.forEach(s => { fresh[s.id] = 'checking' })
+    appStores.forEach(s => { fresh[s.id] = 'checking' })
     setStatuses(fresh)
-    APP_STORES.forEach(store => {
+    appStores.forEach(store => {
       invoke('run_adb', {
         args: ['-s', serial, 'shell', 'pm', 'list', 'packages', '-e', store.pkg],
       }).then(res => {
@@ -12969,7 +12740,7 @@ function AppStoresPanel({ device, onNavigateToDevices, platform }) {
         setStatuses(s => ({ ...s, [store.id]: 'not_installed' }))
       })
     })
-  }, [serial])
+  }, [serial, appStores])
 
   function handleStatusChange(id, status) {
     setStatuses(s => ({ ...s, [id]: status }))
@@ -12982,10 +12753,10 @@ function AppStoresPanel({ device, onNavigateToDevices, platform }) {
   }
 
   const filtered = catFilter === 'all'
-    ? APP_STORES
-    : APP_STORES.filter(s => s.category === catFilter)
+    ? appStores
+    : appStores.filter(s => s.category === catFilter)
 
-  const installableCount = APP_STORES.filter(s =>
+  const installableCount = appStores.filter(s =>
     s.installType === 'direct' && statuses[s.id] === 'not_installed'
   ).length
 
@@ -13030,7 +12801,7 @@ function AppStoresPanel({ device, onNavigateToDevices, platform }) {
 
         {/* Category filter tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
-          {STORE_CATEGORIES.map(cat => (
+          {storeCatalog.categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setCatFilter(cat.id)}
@@ -13052,6 +12823,9 @@ function AppStoresPanel({ device, onNavigateToDevices, platform }) {
 
         {/* Store grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {!appStores.length && (
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Loading app stores…</div>
+          )}
           {filtered.map(store => (
             <StoreCard
               key={store.id}
