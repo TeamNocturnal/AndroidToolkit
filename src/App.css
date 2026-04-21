@@ -235,7 +235,7 @@
 [data-style="classic"] .titlebar-window-well,
 [data-style="classic"] .titlebar-control-cluster,
 [data-style="classic"] .titlebar-update-pill {
-  min-height: 32px;
+  min-height: 30px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
@@ -263,35 +263,36 @@
 }
 
 [data-style="classic"] .classic-titlebar-toggle {
-  padding: 2px;
-  border-radius: 20px;
+  padding: 1px;
+  border-radius: 16px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
 }
 
 [data-style="classic"] .classic-style-picker-cluster {
-  padding: 0 8px;
+  padding: 0 6px;
 }
 
 [data-style="classic"] .classic-scan-button {
-  padding: 3px 10px;
-  font-size: var(--text-xs);
+  padding: 2px 8px;
+  font-size: 10px;
   min-width: 0;
 }
 
 [data-style="classic"] .titlebar-style-picker-shell {
-  padding: 0;
-  gap: 6px;
+  padding: 0 8px 0 10px;
+  gap: 4px;
 }
 
 [data-style="classic"] .titlebar-style-picker-label {
+  font-size: 9px;
   letter-spacing: 0.06em;
 }
 
 [data-style="classic"] .titlebar-style-picker {
-  min-width: 104px;
-  padding: 4px 14px 4px 0;
-  font-size: 11px;
+  min-width: 96px;
+  padding: 2px 14px 2px 0;
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -398,6 +399,11 @@
   box-shadow: none;
 }
 
+[data-style="classic"] .theme-segmented-control {
+  gap: 2px;
+  padding: 2px;
+}
+
 .theme-segment-button {
   width: 30px;
   height: 30px;
@@ -425,6 +431,12 @@
 
 [data-theme="light"] .theme-segment-button.active {
   background: rgba(92, 141, 246, 0.14);
+}
+
+[data-style="classic"] .theme-segment-button {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
 }
 
 .titlebar-scan-button {
