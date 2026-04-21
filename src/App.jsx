@@ -7,7 +7,6 @@ import { open as openDialog, confirm as dialogConfirm } from '@tauri-apps/plugin
 import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { readDir, readTextFile, writeTextFile, mkdir, remove, exists, stat as fsStat, copyFile } from '@tauri-apps/plugin-fs'
 import { join as pathJoin, homeDir, downloadDir } from '@tauri-apps/api/path'
-import QRCode from 'qrcode'
 import teamNocturnalRoundLogo from './assets/team-nocturnal-round-logo.jpg'
 import './App.css'
 
@@ -9543,6 +9542,7 @@ function PhonesPanel({ devices, ready, selected, onSelect, props, loading, onReb
   async function openQrPairModal() {
     const serviceName = `studio-${randomAdbQrToken(10)}`
     const password = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')
+    const { default: QRCode } = await import('qrcode')
     const qrDataUrl = await QRCode.toDataURL(createAdbQrPayload(serviceName, password), {
       margin: 1,
       width: 280,
