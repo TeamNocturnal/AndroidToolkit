@@ -7,6 +7,10 @@ html {
     radial-gradient(circle at top left, var(--window-wash, rgba(84, 109, 168, 0.18)) 0%, #181a24 36%, #0f1118 100%);
 }
 
+html[data-style="classic"] {
+  background: var(--bg-base);
+}
+
 /* ── Design tokens ───────────────────────────────────────────────────────── */
 
 :root {
@@ -186,6 +190,23 @@ html {
   --toolbar-pill-hover: rgba(255, 255, 255, 0.06);
   --sidebar-tint:     transparent;
   --window-wash:      transparent;
+}
+
+[data-style="classic"][data-theme="light"] {
+  --bg-base:        #f0f0f2;
+  --bg-surface:     #f8f8fa;
+  --bg-elevated:    #ffffff;
+  --bg-active:      #e8e8ec;
+  --bg-overlay:     rgba(240, 240, 242, 0.8);
+  --border:         #d0d0d8;
+  --border-strong:  #c2c2cc;
+  --border-subtle:  #e0e0e8;
+  --text-primary:   #111114;
+  --text-secondary: #505060;
+  --text-muted:     #8888a0;
+  --terminal-bg:    #1a1a1f;
+  --terminal-text:  #22c55e;
+  --terminal-border:#2a2a30;
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */
