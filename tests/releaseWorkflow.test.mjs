@@ -38,7 +38,7 @@ test('beta release uses the nightly layout and the current versioned notes', asy
   assert.equal(release.draft, false)
   assert.equal(outputs.release_id, '123')
   assert.deepEqual([...release.body.matchAll(/^#{2,3} .+$/gm)].map(match => match[0]), [
-    '## Android Toolkit v3.1.0', '### Build Info', '### What I Changed Since The Previous Build', '### Install Notes', '### Downloads',
+    '## Android Toolkit v3.1.0', '### Build Info', '### Changes Since the Previous Build', '### Install Notes', '### Downloads',
   ])
   assert(release.body.includes('Enabled all six app search providers'))
   assert(release.body.includes('Previous build: `v3.0.0-beta-20260421-023534`'))
@@ -82,7 +82,7 @@ async function renderNightly(previousTag) {
   assert.equal(release.prerelease, true)
   assert(release.body.includes('Improve nightly app workflows'))
   assert.deepEqual([...release.body.matchAll(/^#{2,3} .+$/gm)].map(match => match[0]), [
-    '## Android Toolkit v3.1.0', '### Build Info', '### What I Changed Since The Previous Build', '### Install Notes', '### Downloads',
+    '## Android Toolkit v3.1.0', '### Build Info', '### Changes Since the Previous Build', '### Install Notes', '### Downloads',
   ])
   return release
 }

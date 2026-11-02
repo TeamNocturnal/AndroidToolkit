@@ -1,6 +1,6 @@
 ## Android Toolkit v3.1.0
 
-I rolled this build with the latest fixes and improvements from the current branch.
+This build includes the latest fixes and improvements from the current branch.
 
 ### Build Info
 
@@ -8,7 +8,7 @@ I rolled this build with the latest fixes and improvements from the current bran
 - Version: `3.1.0`
 - Branch: `beta`
 
-### What I Changed Since The Previous Build
+### Changes Since the Previous Build
 
 - Enabled all six app search providers by default: F-Droid, GitHub, Aptoide, APKPure, APKMirror, and Uptodown.
 - Closed sidebar groups, connection setup, and expandable tool sections by default while keeping direct tool cards visible.

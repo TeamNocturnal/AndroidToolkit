@@ -59,7 +59,7 @@ jobs:
             const buildSha = '${{ steps.meta.outputs.commit_sha }}'
             const notesPath = `RELEASE_NOTES_${version}-nightly.md`
             const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, 'utf8') : ''
-            const changeSection = notes.match(/### What I Changed[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
+            const changeSection = notes.match(/### Changes Since[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
             const shortSha = buildSha.slice(0, 7)
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
 
@@ -112,7 +112,7 @@ jobs:
             const body = [
               `## Android Toolkit v${version}`,
               '',
-              'I rolled this build with the latest fixes and improvements from the current branch.',
+              'This build includes the latest fixes and improvements from the current branch.',
               '',
               '### Build Info',
               '',
@@ -122,12 +122,12 @@ jobs:
               previousNightlyTag ? `- Previous build: \`${previousNightlyTag}\`` : null,
               compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousNightlyTag ? '### What I Changed Since The Previous Build' : '### What I Changed Since The Last Release',
+              previousNightlyTag ? '### Changes Since the Previous Build' : '### Changes Since the Last Release',
               '',
               ...(!previousNightlyTag?.startsWith(`v${version}-nightly-`) && changeSection ? [changeSection, ''] : []),
               ...(commitLines.length > 0
                 ? commitLines
-                : [`- I published this build, but the commit summary list was not available for this run${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
+                : [`- A commit summary is not available for this build${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
               '',
               '### Install Notes',
               '',
