@@ -51,7 +51,7 @@ jobs:
             const stamp = '${{ steps.meta.outputs.beta_stamp }}'
             const notesPath = `RELEASE_NOTES_${version}-beta.md`
             const notes = fs.readFileSync(notesPath, 'utf8')
-            const changeSection = notes.match(/### Changes Since[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
+            const changeSection = notes.match(/### Changelog[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
             if (!changeSection) throw new Error(`Missing change summary in ${notesPath}`)
             const shortSha = context.sha.slice(0, 7)
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
@@ -78,7 +78,6 @@ jobs:
             }
 
             let commits = []
-            let compareUrl = null
             let compareBase = previousBetaTag || latestStableTag
             if (compareBase) {
               try {
@@ -88,7 +87,6 @@ jobs:
                   base: compareBase,
                   head: context.sha,
                 })
-                compareUrl = compare.data.html_url || null
                 commits = (compare.data.commits || []).slice(-12)
               } catch (error) {
                 core.warning(`Unable to compare commits for beta notes: ${error.message}`)
@@ -113,11 +111,8 @@ jobs:
               `- Branch: \`${context.ref.replace('refs/heads/', '')}\``,
               `- Commit: \`${shortSha}\``,
               `- Built: ${publishedAt}`,
-              latestStableTag ? `- Base release: \`${latestStableTag}\`` : null,
-              previousBetaTag ? `- Previous build: \`${previousBetaTag}\`` : null,
-              compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousBetaTag ? '### Changes Since the Previous Build' : '### Changes Since the Last Release',
+              '### Changelog',
               '',
               changeSection,
               ...(commitLines.length ? ['', 'Recent commits:', ...commitLines] : []),

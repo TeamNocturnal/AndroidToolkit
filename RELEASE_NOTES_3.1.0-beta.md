@@ -8,7 +8,7 @@ This build includes the latest fixes and improvements from the current branch.
 - Version: `3.1.0`
 - Branch: `beta`
 
-### Changes Since the Previous Build
+### Changelog
 
 - Enabled all six app search providers by default: F-Droid, GitHub, Aptoide, APKPure, APKMirror, and Uptodown.
 - Closed sidebar groups, connection setup, and expandable tool sections by default while keeping direct tool cards visible.
