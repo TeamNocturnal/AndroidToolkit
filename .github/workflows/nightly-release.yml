@@ -21,9 +21,13 @@ jobs:
       nightly_tag: ${{ steps.meta.outputs.nightly_tag }}
       build_version: ${{ steps.meta.outputs.build_version }}
       release_id: ${{ steps.release.outputs.release_id }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+        with:
+          ref: nightly
 
       - name: Compute nightly release metadata
         id: meta
@@ -34,6 +38,7 @@ jobs:
           NIGHTLY_TAG="v${APP_VERSION}-nightly-${NIGHTLY_STAMP}"
           BUILD_VERSION="${APP_VERSION}_nightly-${NIGHTLY_STAMP}"
 
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
           echo "nightly_stamp=$NIGHTLY_STAMP" >> "$GITHUB_OUTPUT"
           echo "nightly_tag=$NIGHTLY_TAG" >> "$GITHUB_OUTPUT"
@@ -45,12 +50,17 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('fs')
             const owner = context.repo.owner
             const repo = context.repo.repo
             const tag = '${{ steps.meta.outputs.nightly_tag }}'
             const version = '${{ steps.meta.outputs.app_version }}'
             const stamp = '${{ steps.meta.outputs.nightly_stamp }}'
-            const shortSha = context.sha.slice(0, 7)
+            const buildSha = '${{ steps.meta.outputs.commit_sha }}'
+            const notesPath = `RELEASE_NOTES_${version}-nightly.md`
+            const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, 'utf8') : ''
+            const changeSection = notes.match(/### What I Changed[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
+            const shortSha = buildSha.slice(0, 7)
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
 
             let latestStableTag = null
@@ -83,7 +93,7 @@ jobs:
                   owner,
                   repo,
                   base: compareBase,
-                  head: context.sha,
+                  head: buildSha,
                 })
                 compareUrl = compare.data.html_url || null
                 commits = (compare.data.commits || []).slice(-12)
@@ -114,6 +124,7 @@ jobs:
               '',
               previousNightlyTag ? '### What I Changed Since The Previous Build' : '### What I Changed Since The Last Release',
               '',
+              ...(!previousNightlyTag?.startsWith(`v${version}-nightly-`) && changeSection ? [changeSection, ''] : []),
               ...(commitLines.length > 0
                 ? commitLines
                 : [`- I published this build, but the commit summary list was not available for this run${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
@@ -134,7 +145,7 @@ jobs:
               owner,
               repo,
               tag_name: tag,
-              target_commitish: context.sha,
+              target_commitish: buildSha,
               name: `v${version} nightly-${stamp}`,
               body,
               draft: false,
@@ -165,6 +176,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-nightly-release.outputs.commit_sha }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
