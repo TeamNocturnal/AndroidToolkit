@@ -51,7 +51,7 @@ jobs:
             const stamp = '${{ steps.meta.outputs.beta_stamp }}'
             const notesPath = `RELEASE_NOTES_${version}-beta.md`
             const notes = fs.readFileSync(notesPath, 'utf8')
-            const changeSection = notes.match(/### What I Changed[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
+            const changeSection = notes.match(/### Changes Since[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
             if (!changeSection) throw new Error(`Missing change summary in ${notesPath}`)
             const shortSha = context.sha.slice(0, 7)
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
@@ -105,7 +105,7 @@ jobs:
             const body = [
               `## Android Toolkit v${version}`,
               '',
-              'I rolled this build with the latest fixes and improvements from the current branch.',
+              'This build includes the latest fixes and improvements from the current branch.',
               '',
               '### Build Info',
               '',
@@ -117,7 +117,7 @@ jobs:
               previousBetaTag ? `- Previous build: \`${previousBetaTag}\`` : null,
               compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousBetaTag ? '### What I Changed Since The Previous Build' : '### What I Changed Since The Last Release',
+              previousBetaTag ? '### Changes Since the Previous Build' : '### Changes Since the Last Release',
               '',
               changeSection,
               ...(commitLines.length ? ['', 'Recent commits:', ...commitLines] : []),

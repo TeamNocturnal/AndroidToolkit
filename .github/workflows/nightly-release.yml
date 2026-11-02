@@ -102,7 +102,7 @@ jobs:
             const body = [
               `## Android Toolkit v${version}`,
               '',
-              'I rolled this build with the latest fixes and improvements from the current branch.',
+              'This build includes the latest fixes and improvements from the current branch.',
               '',
               '### Build Info',
               '',
@@ -112,11 +112,11 @@ jobs:
               previousNightlyTag ? `- Previous build: \`${previousNightlyTag}\`` : null,
               compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousNightlyTag ? '### What I Changed Since The Previous Build' : '### What I Changed Since The Last Release',
+              previousNightlyTag ? '### Changes Since the Previous Build' : '### Changes Since the Last Release',
               '',
               ...(commitLines.length > 0
                 ? commitLines
-                : [`- I published this build, but the commit summary list was not available for this run${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
+                : [`- A commit summary is not available for this build${compareBase ? '.' : ' because there was no earlier build or release to compare against.'}`]),
               '',
               '### Install Notes',
               '',
