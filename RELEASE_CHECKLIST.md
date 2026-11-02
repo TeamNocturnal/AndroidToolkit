@@ -1,41 +1,32 @@
-# Release Checklist
+# Release Checklist — 3.1.0 beta and nightly
 
 ## Before Publishing
 
-- [x] App version updated to `2.0.0`
-- [x] Titlebar branding updated to `Android Toolkit`
-- [x] Footer version updated to `v2.0.0`
-- [x] Beta labels removed from release-facing UI and metadata
-- [x] In-app update checker switched from stub to GitHub releases lookup
-- [x] Lint passes
-- [x] Frontend production build passes
-- [x] Rust `cargo check` passes
-- [x] CI workflow added
-- [x] Changelog added
-- [x] Release notes draft added
-- [x] Screen Mirror popout hidden for the stable release
+- [x] App, npm lockfile, Cargo, and Tauri versions use `3.1.0`.
+- [x] All six app search sources are enabled by default.
+- [x] Sidebar groups and expandable tool sections start closed.
+- [x] Getting Started, device connections, app tools, TV tools, and themes have been updated.
+- [x] Versioned beta/nightly notes and the changelog describe the current changes.
+- [x] Beta notes follow the current nightly release layout.
+- [x] Timestamped beta tags, frontend build versions, and artifact names identify each build.
+- [x] The first 3.1.0 nightly includes the updated notes; later nightlies summarize new commits.
+- [x] Nightly release jobs build the exact commit used in the release metadata.
+- [x] Windows packaging uses the current numeric app version.
+- [x] Frontend lint and production build pass.
+- [x] Rust checks and automated app, provider, and TV tests pass.
+- [x] ONN download, installation, update, uninstall, website import, archive import, and batch error recovery were verified.
+- [x] The temporary test app was removed and the original app list was verified unchanged.
 
 ## Packaging
 
-- [ ] Install `create-dmg`
-- [ ] Run `npm run build:mac`
-- [ ] Verify generated `.app` launches locally
-- [ ] Verify generated `.dmg` installs locally
-- [ ] Verify DMG on a second Mac
-
-## Manual App Verification
-
-- [ ] Titlebar shows `Android Toolkit`
-- [ ] Footer shows `v2.0.0`
-- [ ] Screen Mirror popout button is absent
-- [ ] Devices view still works
-- [ ] Maintenance view still works
-- [ ] Update checker does not show runtime errors
+- [ ] GitHub Windows, macOS, and Linux build jobs complete successfully.
+- [ ] Windows `.exe` and `.msi` artifacts are attached to the beta release.
+- [ ] macOS and Linux artifacts are attached to the beta release.
+- [ ] Packaged installers are checked on their target platforms.
 
 ## Publish
 
-- [ ] Review `RELEASE_NOTES_2.0.0.md`
-- [ ] Commit release-prep changes
-- [ ] Tag release
-- [ ] Push branch and tags
-- [ ] Create GitHub release with final DMG and notes
+- [ ] Commit release changes locally.
+- [ ] Push the commit to `beta`.
+- [ ] Verify the generated beta prerelease notes and build metadata.
+- [ ] Confirm GitHub checks and release artifact jobs complete.

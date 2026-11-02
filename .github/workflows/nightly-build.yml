@@ -1,9 +1,6 @@
-name: Nightly Build
+name: Nightly Package Check
 
 on:
-  push:
-    branches:
-      - nightly
   workflow_dispatch:
 
 permissions:
@@ -70,30 +67,3 @@ jobs:
             src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/release/bundle/**/*.dmg
             src-tauri/target/release/bundle/**/*.app.tar.gz
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download all nightly artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: nightly-artifacts
-
-      - name: Create nightly metadata
-        id: meta
-        run: |
-          DATE_TAG="$(date -u +'%Y%m%d-%H%M%S')"
-          echo "tag=nightly-${DATE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "name=Nightly ${DATE_TAG} UTC" >> "$GITHUB_OUTPUT"
-
-      - name: Publish prerelease
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.name }}
-          prerelease: true
-          generate_release_notes: true
-          target_commitish: ${{ github.sha }}
-          files: nightly-artifacts/**/*
