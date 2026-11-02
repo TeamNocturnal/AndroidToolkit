@@ -59,7 +59,7 @@ jobs:
             const buildSha = '${{ steps.meta.outputs.commit_sha }}'
             const notesPath = `RELEASE_NOTES_${version}-nightly.md`
             const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, 'utf8') : ''
-            const changeSection = notes.match(/### Changes Since[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
+            const changeSection = notes.match(/### Changelog[^\n]*\n([\s\S]*?)(?=\n### |$)/)?.[1]?.trim()
             const shortSha = buildSha.slice(0, 7)
             const publishedAt = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
 
@@ -85,7 +85,6 @@ jobs:
             }
 
             let commits = []
-            let compareUrl = null
             let compareBase = previousNightlyTag || latestStableTag
             if (compareBase) {
               try {
@@ -95,7 +94,6 @@ jobs:
                   base: compareBase,
                   head: buildSha,
                 })
-                compareUrl = compare.data.html_url || null
                 commits = (compare.data.commits || []).slice(-12)
               } catch (error) {
                 core.warning(`Unable to compare commits for nightly notes: ${error.message}`)
@@ -118,11 +116,8 @@ jobs:
               '',
               `- Commit: \`${shortSha}\``,
               `- Built: ${publishedAt}`,
-              latestStableTag ? `- Base release: \`${latestStableTag}\`` : null,
-              previousNightlyTag ? `- Previous build: \`${previousNightlyTag}\`` : null,
-              compareUrl ? `- Full compare: ${compareUrl}` : null,
               '',
-              previousNightlyTag ? '### Changes Since the Previous Build' : '### Changes Since the Last Release',
+              '### Changelog',
               '',
               ...(!previousNightlyTag?.startsWith(`v${version}-nightly-`) && changeSection ? [changeSection, ''] : []),
               ...(commitLines.length > 0
