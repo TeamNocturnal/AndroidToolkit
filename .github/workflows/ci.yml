@@ -42,6 +42,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate TV optimizer
+        run: npm run test:tv
+
+      - name: Validate app workflows
+        run: npm run test:apps
+
+      - name: Validate package and provider parsing
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
       - name: Build frontend
         run: npm run build
 

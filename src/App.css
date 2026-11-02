@@ -1,4 +1,11 @@
 /* App shell redesign */
+.package-help-overlay { position: fixed; inset: 0; z-index: 9500; display: grid; place-items: center; padding: 28px; background: rgba(0,0,0,.55); }
+.package-help-dialog { width: min(620px, 100%); max-height: 90vh; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-lg); }
+.package-help-dialog p, .package-help-dialog li { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.package-help-dialog ol { padding-left: 22px; margin: 16px 0; }
+.package-import-zone { display: block; width: 100%; margin-top: 20px; font: inherit; color: var(--text-primary); background: var(--bg-surface); }
+.package-import-zone span { font-size: 12px; color: var(--accent); }
+.package-update-note { max-width: 620px; margin: 12px auto 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
 
 .app-backdrop {
   position: fixed;
@@ -1091,3 +1098,75 @@
   -webkit-backdrop-filter: none;
   background-image: none;
 }
+[data-style] .tv-primary-tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 14px;
+}
+.tv-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.tv-tool-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 12px;
+  line-height: 1.6;
+  min-width: 0;
+}
+.tv-tool-card h3 { margin: 0 0 6px; font-size: 14px; }
+.tv-tool-description { color: var(--text-secondary); margin: 0 0 12px; }
+.tv-tool-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.tv-tool-card button { font-size: 11px; padding: 6px 10px; }
+.tv-tool-values { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; }
+.tv-tool-values dt { color: var(--text-secondary); }
+.tv-tool-values dd { margin: 0; overflow-wrap: anywhere; }
+.tv-tool-status { color: var(--text-secondary); overflow-wrap: anywhere; margin-bottom: 0; }
+.tv-remote-pad { display: grid; grid-template-columns: repeat(3, 46px); gap: 5px; margin: 8px 0 12px; }
+.tv-remote-pad button { min-height: 36px; }
+.tv-screen-preview { width: 100%; max-height: 220px; object-fit: contain; margin-top: 10px; border-radius: var(--radius-sm); }
+.tv-dns-card { grid-column: span 2; }
+.android-update-card { grid-column: 1 / -1; margin-bottom: 14px; }
+.tv-update-option { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tv-update-packages { padding-left: 18px; overflow-wrap: anywhere; }
+.tv-dns-label { display: grid; gap: 5px; margin-bottom: 12px; }
+.tv-dns-label select, .tv-dns-label input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--text-primary); font: inherit; }
+.tv-dns-description { border-left: 2px solid var(--accent-teal); padding: 2px 12px; margin: 12px 0; }
+.tv-dns-description p { margin: 4px 0; }
+.tv-dns-description code { display: block; overflow-wrap: anywhere; margin: 6px 0; }
+@media (max-width: 1100px) { .tv-tools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .tv-tools-grid { grid-template-columns: minmax(0, 1fr); } .tv-dns-card { grid-column: auto; } }
+.setup-intro { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 22px; margin-bottom: 22px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.setup-intro h2 { margin: 0 0 8px; font-size: 22px; }
+.setup-intro p { margin: 0; color: var(--text-secondary); line-height: 1.6; max-width: 700px; }
+.setup-intro button { flex-shrink: 0; }
+.setup-steps { list-style: none; padding: 0; margin: 0 0 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.setup-steps li { display: flex; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.setup-step-number { border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center; flex-shrink: 0; background: var(--bg-elevated); color: var(--accent); font-weight: 600; }
+.setup-steps h3 { margin: 3px 0 10px; font-size: 14px; }
+.setup-steps p { font-size: 12px; color: var(--text-secondary); line-height: 1.65; }
+.setup-steps .setup-muted { color: var(--text-muted); }
+.setup-connection-status { font-weight: 600; }
+.workflow-section-title { font-size: 14px; margin: 0 0 12px; }
+.setup-task-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.setup-task-card { text-align: left; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text-primary); cursor: pointer; font: inherit; }
+.setup-task-card:hover { border-color: var(--accent); background: var(--bg-elevated); }
+.setup-task-card strong { display: block; font-size: 13px; margin-bottom: 8px; }
+.setup-task-card span { display: block; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.setup-help-link { display: flex; align-items: center; gap: 12px; margin-top: 22px; font-size: 12px; color: var(--text-secondary); }
+.connection-methods { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.connection-usb-help { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.devices-workspace { flex: 1; min-height: 0; display: flex; }
+.devices-workspace .devices-panel { min-height: 0; }
+.devices-workspace .devices-list { width: 240px; min-width: 240px; }
+.saved-device-management { padding: 10px 16px; font-size: 11px; color: var(--text-secondary); }
+.saved-device-management summary { cursor: pointer; padding-bottom: 8px; }
+@media (max-width: 1100px) { .setup-steps { grid-template-columns: 1fr; } .setup-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .setup-intro { align-items: flex-start; flex-direction: column; } .setup-task-grid { grid-template-columns: 1fr; } .devices-workspace .devices-panel { flex-direction: column; overflow-y: auto; } .devices-workspace .devices-list { width: 100%; min-width: 0; max-height: 220px; flex-shrink: 0; } }
+.sidebar-nav-scroll button.sidebar-section-label { width: 100%; border: 0; text-align: left; font-family: inherit; background: transparent; cursor: pointer; }
+.device-detail-tech { margin: 0 0 24px; font-size: 12px; color: var(--text-secondary); }
+.device-detail-tech summary { cursor: pointer; margin-bottom: 10px; }

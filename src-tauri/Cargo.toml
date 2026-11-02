@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "3.0.0-beta"
+version = "3.1.0"
 description = "Android Toolkit Beta by Team Nocturnal"
 authors = ["XsMagical <XsMagical@Team-Nocturnal.com>", "Team Nocturnal"]
 license = "UNLICENSED"
@@ -38,3 +38,5 @@ futures-util = "0.3"
 tauri-plugin-fs = "2.4.5"
 dirs = "5"
 zip = "2"
+scraper = { version = "0.24", default-features = false }
+tempfile = "3"

@@ -1,7 +1,7 @@
 {
   "name": "nocturnal-toolkit",
   "private": true,
-  "version": "3.0.0-beta",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,8 @@
     "build:mac": "bash ./build-mac.sh",
     "build:mac:nightly": "BUILD_FLAVOR=nightly bash ./build-mac.sh",
     "lint": "eslint .",
+    "test:apps": "node --test tests/appPackages.test.mjs tests/releaseVersions.test.mjs tests/releaseWorkflow.test.mjs",
+    "test:tv": "node --test tests/tvOptimizer.test.mjs tests/deviceDiscovery.test.mjs tests/tvAudio.test.mjs tests/tvDeviceTools.test.mjs tests/tvDns.test.mjs tests/androidUpdates.test.mjs",
     "linux:desktop": "bash ./scripts/install-linux-desktop-entry.sh",
     "preview": "vite preview",
     "tauri": "tauri",

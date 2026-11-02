@@ -29,7 +29,7 @@ else
 fi
 
 # Avoid duplicate beta markers in artifact names like:
-# Android-Toolkit-Beta_3.0.0-beta_arm64.dmg
+# Android-Toolkit-Beta_3.1.0_arm64.dmg
 if [ "$BUILD_FLAVOR" = "beta" ]; then
   FILE_VERSION="${FILE_VERSION%-beta}"
 fi

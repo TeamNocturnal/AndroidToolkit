@@ -17,6 +17,7 @@
     "core:webview:allow-create-webview-window",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
+    "fs:allow-write-file",
     "fs:allow-create",
     "fs:allow-mkdir",
     "fs:allow-read-dir",

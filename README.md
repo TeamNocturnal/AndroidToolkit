@@ -175,12 +175,16 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 ./
 
 | Section | Highlights |
 | --- | --- |
-| Apps | `Install APK`, split package support, APK search, app stores, app management |
+| Getting Started | Prepare, connect, and select a device; shortcuts to common tasks |
 | Devices | USB + wireless ADB, pairing, saved devices, battery and storage details |
-| Media | TV and streaming setup, launcher tools, media app installs, device-specific flows |
-| Power Tools | File browser, backups, cleanup, diagnostics, tweaks, ROM tools |
-| Pro Tools | `ADB & Shell`, reboot modes, quick commands, package and permission controls |
+| Apps | Find Apps, App Stores, Install APK, and Manage Apps |
+| Device Tools | General Tools, Phone Tools, TV & Streaming, and Quest Tools |
+| Files & Backups | File Browser, Backup & Restore, and Screen Mirror |
+| Advanced | ADB & Shell, ROM Tools, and Windows USB Drivers |
+| Help & Docs | Setup guides and troubleshooting; detailed platform instructions |
 | Android App | Local shell, logcat, installs, maintenance, and Android-specific UX |
+
+The desktop Apps section supports direct downloads, website import when a provider blocks downloads, APK and split-bundle installs, and app updates. See [App workflows](docs/APP_WORKFLOWS.md) for provider behavior and package limitations.
 
 ## Tech Stack
 

@@ -1,3 +1,6 @@
+mod app_packages;
+mod app_sources;
+
 // ── Platform split ────────────────────────────────────────────────────────────
 // This crate targets macOS, Windows, Linux, and Android from a single codebase.
 //
@@ -980,184 +983,34 @@ async fn install_from_url(
     url: String,
     filename: String,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Linux; Android 10)")
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .connection_verbose(true)
-        .build()
-        .map_err(|e| format!("Client build failed: {e}"))?;
+    app_packages::download_and_install(&app, &serial, &url, &filename).await
+}
 
-    println!(
-        "[install] starting: url={} serial={} filename={}",
-        url, serial, filename
-    );
-    println!("[install] downloading {}", url);
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {e}"))?;
+#[tauri::command]
+async fn download_app_package(
+    app: tauri::AppHandle,
+    url: String,
+    filename: String,
+) -> Result<serde_json::Value, String> {
+    app_packages::save_download(&app, &url, &filename).await
+}
 
-    println!(
-        "[install] HTTP {} content-type={:?} content-length={:?}",
-        resp.status(),
-        resp.headers().get("content-type"),
-        resp.headers().get("content-length")
-    );
+#[tauri::command]
+async fn resolve_store_download(
+    source: String,
+    package: String,
+    page: String,
+) -> Result<serde_json::Value, String> {
+    app_sources::store_download(&source, &package, &page).await
+}
 
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
-    }
-
-    // Stream chunks, tracking progress and emitting events every 500ms
-    let content_length: Option<u64> = resp
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok());
-
-    let mut data = Vec::new();
-    if let Some(len) = content_length {
-        data.reserve(len as usize);
-    }
-
-    let mut stream = resp.bytes_stream();
-    use futures_util::StreamExt;
-
-    let mut received: u64 = 0;
-    let mut last_speed_check = std::time::Instant::now();
-    let mut last_bytes_for_speed: u64 = 0;
-    let mut current_speed = String::new();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream error: {e}"))?;
-        received += chunk.len() as u64;
-        data.extend_from_slice(&chunk);
-
-        if last_speed_check.elapsed().as_millis() >= 500 {
-            let bytes_since = received - last_bytes_for_speed;
-            let elapsed_secs = last_speed_check.elapsed().as_secs_f64();
-            if elapsed_secs > 0.0 {
-                current_speed = format_speed(bytes_since as f64 / elapsed_secs);
-            }
-            last_speed_check = std::time::Instant::now();
-            last_bytes_for_speed = received;
-
-            let percent = content_length
-                .filter(|&t| t > 0)
-                .map(|t| ((received as f64 / t as f64) * 100.0).min(99.0) as u64)
-                .unwrap_or(0);
-            let received_str = format_bytes(received);
-            let total_str = content_length.map(format_bytes).unwrap_or_default();
-
-            let _ = app.emit(
-                "install:progress",
-                serde_json::json!({
-                    "store":    filename,
-                    "filename": filename,
-                    "phase":    "downloading",
-                    "percent":  percent,
-                    "speed":    current_speed,
-                    "received": received_str,
-                    "total":    total_str,
-                }),
-            );
-        }
-    }
-    println!("[install] downloaded {} bytes", data.len());
-
-    if data.is_empty() {
-        return Err("Downloaded file is empty".to_string());
-    }
-
-    if data.len() < 4 || &data[..2] != b"PK" {
-        let preview = String::from_utf8_lossy(&data[..data.len().min(120)]).replace('\n', " ");
-        return Err(format!(
-            "Downloaded file does not look like an APK. First bytes: {}",
-            preview
-        ));
-    }
-
-    let final_total = content_length
-        .map(format_bytes)
-        .unwrap_or_else(|| format_bytes(received));
-    let _ = app.emit(
-        "install:progress",
-        serde_json::json!({
-            "store":    filename,
-            "filename": filename,
-            "phase":    "installing",
-            "percent":  95,
-            "speed":    "",
-            "received": format_bytes(received),
-            "total":    final_total,
-        }),
-    );
-
-    let tmp_dir = std::env::temp_dir();
-    tokio::fs::create_dir_all(&tmp_dir).await.ok();
-    let safe_filename: String = filename
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let tmp = tmp_dir.join(&safe_filename);
-    println!("[install] writing {} bytes to {:?}", data.len(), tmp);
-    tokio::fs::write(&tmp, &data)
-        .await
-        .map_err(|e| format!("Write failed: {e}"))?;
-    let path = tmp.to_string_lossy().to_string();
-
-    #[cfg(target_os = "android")]
-    if is_android_local_serial(&serial) {
-        let _ = app.emit(
-            "install:progress",
-            serde_json::json!({
-                "store": filename, "filename": filename, "phase": "done", "percent": 100
-            }),
-        );
-        return Ok(serde_json::json!({
-            "ok": true,
-            "stdout": "Installer package downloaded.\n",
-            "stderr": "",
-            "localPath": path
-        }));
-    }
-
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(180),
-        app.shell()
-            .sidecar("adb")
-            .map_err(|e| e.to_string())?
-            .args(&["-s", &serial, "install", "-r", &path])
-            .output(),
-    )
-    .await
-    .map_err(|_| "adb install timed out after 180s".to_string())?
-    .map_err(|e| e.to_string())?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    println!("[install] adb stdout: {}", stdout);
-    println!("[install] adb stderr: {}", stderr);
-
-    let ok = stdout.to_lowercase().contains("success") || stderr.to_lowercase().contains("success");
-    println!("[install] ok={}", ok);
-    let _ = tokio::fs::remove_file(&tmp).await;
-
-    let _ = app.emit(
-        "install:progress",
-        serde_json::json!({
-            "store": filename, "filename": filename, "phase": "done", "percent": 100
-        }),
-    );
-
-    Ok(serde_json::json!({ "ok": ok, "stdout": stdout, "stderr": stderr }))
+#[tauri::command]
+async fn install_app_package(
+    app: tauri::AppHandle,
+    serial: String,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    app_packages::install_path(&app, &serial, &path).await
 }
 
 // ── F-Droid index cache ───────────────────────────────────────────────────────
@@ -1201,319 +1054,6 @@ fn save_fdroid_cache(bytes: &[u8]) {
     }
 }
 
-// ── F-Droid search ────────────────────────────────────────────────────────────
-
-async fn search_fdroid(client: &reqwest::Client, query: &str) -> Vec<serde_json::Value> {
-    let url = format!(
-        "https://search.f-droid.org/api/search_apps?q={}",
-        query.replace(' ', "+")
-    );
-    println!("[fdroid] GET {}", url);
-    let resp = match client.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            println!("[fdroid] failed: {}", e);
-            return vec![];
-        }
-    };
-    println!("[fdroid] HTTP {}", resp.status());
-    let bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            println!("[fdroid] bytes failed: {}", e);
-            return vec![];
-        }
-    };
-    println!(
-        "[fdroid] preview: {}",
-        String::from_utf8_lossy(&bytes[..bytes.len().min(300)])
-    );
-    let json: serde_json::Value = match serde_json::from_slice(&bytes) {
-        Ok(j) => j,
-        Err(e) => {
-            println!("[fdroid] parse failed: {}", e);
-            return vec![];
-        }
-    };
-    // Response shape: {"apps": [{"name", "summary", "icon", "url"}, ...]}
-    // packageName is the last path component of url: .../packages/{packageName}
-    let arr = match json.get("apps").and_then(|v| v.as_array()) {
-        Some(a) => a.clone(),
-        None => {
-            println!(
-                "[fdroid] unexpected shape: {:?}",
-                json.as_object().map(|o| o.keys().collect::<Vec<_>>())
-            );
-            return vec![];
-        }
-    };
-    println!("[fdroid] {} results, fetching version codes…", arr.len());
-
-    // Fetch package details concurrently to get suggestedVersionCode for APK URL
-    let results: Vec<serde_json::Value> = {
-        use futures_util::future::join_all;
-        let futs: Vec<_> = arr
-            .iter()
-            .take(10)
-            .map(|hit| {
-                let client = client.clone();
-                let name = hit
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let summary = hit
-                    .get("summary")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let pkg = hit
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .and_then(|u| u.split('/').last())
-                    .unwrap_or("")
-                    .to_string();
-                async move {
-                    if pkg.is_empty() {
-                        return serde_json::json!({
-                            "packageName": pkg, "name": name, "summary": summary,
-                            "suggestedVersionName": "", "source": "fdroid",
-                            "verified": true, "apkUrl": serde_json::Value::Null
-                        });
-                    }
-                    // Fetch package details to get suggestedVersionCode
-                    let (apk_url, version_name) = match client
-                        .get(format!("https://f-droid.org/api/v1/packages/{}", pkg))
-                        .send()
-                        .await
-                    {
-                        Ok(r) if r.status().is_success() => match r.bytes().await {
-                            Ok(b) => {
-                                let det: serde_json::Value =
-                                    serde_json::from_slice(&b).unwrap_or(serde_json::Value::Null);
-                                let vc = det.get("suggestedVersionCode").and_then(|v| v.as_u64());
-                                let vn = det
-                                    .get("suggestedVersionName")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let url = if let Some(code) = vc {
-                                    format!("https://f-droid.org/repo/{}_{}.apk", pkg, code)
-                                } else {
-                                    format!("https://f-droid.org/repo/{}_latest.apk", pkg)
-                                };
-                                (url, vn)
-                            }
-                            Err(_) => (
-                                format!("https://f-droid.org/repo/{}_latest.apk", pkg),
-                                String::new(),
-                            ),
-                        },
-                        _ => (
-                            format!("https://f-droid.org/repo/{}_latest.apk", pkg),
-                            String::new(),
-                        ),
-                    };
-                    println!("[fdroid] {} -> {}", pkg, apk_url);
-                    serde_json::json!({
-                        "packageName": pkg, "name": name, "summary": summary,
-                        "suggestedVersionName": version_name, "source": "fdroid",
-                        "verified": true, "apkUrl": apk_url
-                    })
-                }
-            })
-            .collect();
-        join_all(futs).await
-    };
-    results
-}
-
-// ── Aptoide search ────────────────────────────────────────────────────────────
-
-async fn search_aptoide(client: &reqwest::Client, query: &str) -> Vec<serde_json::Value> {
-    let url = format!(
-        "https://ws75.aptoide.com/api/7/apps/search/query={}",
-        query.replace(' ', "+")
-    );
-    println!("[aptoide] GET {}", url);
-    let resp = match client.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            println!("[aptoide] failed: {}", e);
-            return vec![];
-        }
-    };
-    println!("[aptoide] HTTP {}", resp.status());
-    let bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            println!("[aptoide] bytes failed: {}", e);
-            return vec![];
-        }
-    };
-    println!(
-        "[aptoide] preview: {}",
-        String::from_utf8_lossy(&bytes[..bytes.len().min(300)])
-    );
-    let json: serde_json::Value = match serde_json::from_slice(&bytes) {
-        Ok(j) => j,
-        Err(e) => {
-            println!("[aptoide] parse failed: {}", e);
-            return vec![];
-        }
-    };
-    // Aptoide returns { datalist: { list: [...] } }
-    let list = match json
-        .get("datalist")
-        .and_then(|d| d.get("list"))
-        .and_then(|v| v.as_array())
-    {
-        Some(l) => l.clone(),
-        None => {
-            println!("[aptoide] unexpected shape");
-            return vec![];
-        }
-    };
-    println!("[aptoide] {} results", list.len());
-    list.iter()
-        .take(10)
-        .map(|app| {
-            let pkg = app
-                .get("package")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let name = app
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or(&pkg)
-                .to_string();
-            let version = app
-                .get("file")
-                .and_then(|f| f.get("vername"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let download_url = app
-                .get("file")
-                .and_then(|f| f.get("path"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            serde_json::json!({
-                "packageName": pkg, "name": name, "summary": "",
-                "suggestedVersionName": version, "source": "aptoide",
-                "verified": false, "apkUrl": download_url
-            })
-        })
-        .collect()
-}
-
-// ── GitHub search ─────────────────────────────────────────────────────────────
-
-async fn search_github(client: &reqwest::Client, query: &str) -> Vec<serde_json::Value> {
-    let search_q = format!("{} android", query);
-    let repos: serde_json::Value = match client
-        .get("https://api.github.com/search/repositories")
-        .query(&[
-            ("q", search_q.as_str()),
-            ("sort", "stars"),
-            ("per_page", "8"),
-        ])
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-    {
-        Ok(r) if r.status().is_success() => match r.bytes().await {
-            Ok(b) => serde_json::from_slice(&b).unwrap_or(serde_json::Value::Null),
-            Err(_) => return vec![],
-        },
-        _ => return vec![],
-    };
-
-    let items = match repos.get("items").and_then(|v| v.as_array()) {
-        Some(i) => i.clone(),
-        None => return vec![],
-    };
-
-    let mut results = Vec::new();
-    for repo in items.iter().take(8) {
-        let full_name = match repo.get("full_name").and_then(|v| v.as_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-        let name = repo
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&full_name)
-            .to_string();
-        let description = repo
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let release: serde_json::Value = match client
-            .get(format!(
-                "https://api.github.com/repos/{}/releases/latest",
-                full_name
-            ))
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => match r.bytes().await {
-                Ok(b) => serde_json::from_slice(&b).unwrap_or(serde_json::Value::Null),
-                Err(_) => continue,
-            },
-            _ => continue,
-        };
-
-        let assets = match release.get("assets").and_then(|v| v.as_array()) {
-            Some(a) => a,
-            None => continue,
-        };
-        let apk_asset = match assets.iter().find(|a| {
-            a.get("name")
-                .and_then(|v| v.as_str())
-                .map(|n| n.to_lowercase().ends_with(".apk"))
-                .unwrap_or(false)
-        }) {
-            Some(a) => a,
-            None => continue,
-        };
-
-        let download_url = apk_asset
-            .get("browser_download_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let version = release
-            .get("tag_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?")
-            .to_string();
-
-        results.push(serde_json::json!({
-            "packageName":          full_name,
-            "name":                 name,
-            "summary":              description,
-            "suggestedVersionName": version,
-            "suggestedVersionCode": serde_json::Value::Null,
-            "lastUpdated":          0u64,
-            "apkUrl":               download_url,
-            "source":               "github",
-        }));
-
-        if results.len() >= 5 {
-            break;
-        }
-    }
-    results
-}
-
-// ── Tauri commands ────────────────────────────────────────────────────────────
-
 #[tauri::command]
 async fn refresh_fdroid_index() -> Result<serde_json::Value, String> {
     // Delete stale cache so load_fdroid_index always re-downloads
@@ -1535,90 +1075,12 @@ async fn refresh_fdroid_index() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn fetch_github_picks() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("NocturnalToolkit/2.0")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
-        .get("https://api.github.com/search/repositories")
-        .query(&[
-            ("q", "android apk release"),
-            ("sort", "stars"),
-            ("per_page", "12"),
-        ])
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        return Err(format!("GitHub API HTTP {}", resp.status()));
-    }
-    let json: serde_json::Value = resp
-        .bytes()
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string()))?;
-
-    let picks: Vec<serde_json::Value> = json
-        .get("items")
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items.iter().take(12).map(|repo| serde_json::json!({
-            "full_name":   repo.get("full_name").and_then(|v| v.as_str()).unwrap_or(""),
-            "name":        repo.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-            "description": repo.get("description").and_then(|v| v.as_str()).unwrap_or(""),
-            "stars":       repo.get("stargazers_count").and_then(|v| v.as_u64()).unwrap_or(0),
-        })).collect()
-        })
-        .unwrap_or_default();
-
-    Ok(serde_json::json!({ "ok": true, "picks": picks }))
+    app_sources::picks().await
 }
 
 #[tauri::command]
 async fn search_apks(query: String, sources: Vec<String>) -> Result<serde_json::Value, String> {
-    println!("[search_apks] query={:?} sources={:?}", query, sources);
-
-    let client = reqwest::Client::builder()
-        .user_agent("NocturnalToolkit/2.0")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let want_fdroid = sources.contains(&"fdroid".to_string());
-    let want_github = sources.contains(&"github".to_string());
-    let want_aptoide = sources.contains(&"aptoide".to_string());
-
-    let (fdroid_results, github_results, aptoide_results) = tokio::join!(
-        async {
-            if !want_fdroid {
-                return vec![];
-            }
-            search_fdroid(&client, &query).await
-        },
-        async {
-            if !want_github {
-                return vec![];
-            }
-            search_github(&client, &query).await
-        },
-        async {
-            if !want_aptoide {
-                return vec![];
-            }
-            search_aptoide(&client, &query).await
-        }
-    );
-
-    let mut all: Vec<serde_json::Value> = fdroid_results;
-    all.extend(github_results);
-    all.extend(aptoide_results);
-    println!("[search_apks] total results: {}", all.len());
-
-    Ok(serde_json::json!({ "ok": true, "results": all }))
+    app_sources::search(&query, &sources).await
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1682,17 +1144,55 @@ async fn capture_screen_frame(
     #[cfg(not(target_os = "android"))]
     {
         let _ = warm_adb_sidecar(&app, &serial).await;
-        let output = app
+        let (mut events, child) = app
             .shell()
             .sidecar("adb")
             .map_err(|e| e.to_string())?
             .args(["-s", &serial, "exec-out", "screencap", "-p"])
-            .output()
-            .await
+            .set_raw_out(true)
+            .spawn()
             .map_err(|e| e.to_string())?;
 
-        if !output.status.success() || output.stdout.is_empty() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // Collect raw events: output() adds newlines and corrupts binary PNG data.
+        let captured = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let mut code = None;
+            while let Some(event) = events.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) => {
+                        if stdout.len() + bytes.len() > 32 * 1024 * 1024 {
+                            return Err("Screen capture exceeded the image size limit.".to_string());
+                        }
+                        stdout.extend(bytes);
+                    }
+                    CommandEvent::Stderr(bytes) => {
+                        if stderr.len() < 8192 {
+                            stderr.extend(bytes);
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => code = payload.code,
+                    CommandEvent::Error(error) => return Err(error),
+                    _ => {}
+                }
+            }
+            Ok((stdout, stderr, code))
+        })
+        .await;
+        let (stdout, stderr, code) = match captured {
+            Ok(Ok(result)) => result,
+            result => {
+                let _ = child.kill();
+                return Err(match result {
+                    Ok(Err(error)) => error,
+                    _ => "Screen capture timed out. Check the device connection and try again."
+                        .to_string(),
+                });
+            }
+        };
+
+        if code != Some(0) || !stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
+            let stderr = String::from_utf8_lossy(&stderr).to_string();
             return Ok(serde_json::json!({
                 "ok": false,
                 "stderr": if stderr.trim().is_empty() { "Failed to capture a screen frame from the connected device.".to_string() } else { stderr }
@@ -1700,7 +1200,7 @@ async fn capture_screen_frame(
         }
 
         use base64::{engine::general_purpose, Engine as _};
-        let b64 = general_purpose::STANDARD.encode(&output.stdout);
+        let b64 = general_purpose::STANDARD.encode(&stdout);
 
         Ok(serde_json::json!({
             "ok": true,
@@ -1975,120 +1475,7 @@ async fn extract_and_install_xapk(
     serial: String,
     path: String,
 ) -> Result<serde_json::Value, String> {
-    #[cfg(target_os = "android")]
-    if is_android_local_serial(&serial) {
-        return Ok(serde_json::json!({
-            "ok": false,
-            "stdout": "",
-            "stderr": "Split APK / XAPK install on the local Android device is not supported yet. Use a standard APK for now."
-        }));
-    }
-
-    // ── 1. Extract zip to a temp directory ───────────────────────────────────
-    let src = std::path::PathBuf::from(&path);
-    let tmp = std::env::temp_dir().join(format!(
-        "nt_xapk_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    ));
-    std::fs::create_dir_all(&tmp).map_err(|e| format!("failed to create temp dir: {e}"))?;
-
-    let _ = app.emit(
-        "xapk:progress",
-        serde_json::json!({ "stage": "extracting", "msg": "Extracting archive…" }),
-    );
-
-    let tmp_clone = tmp.clone();
-    let src_clone = src.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let file = std::fs::File::open(&src_clone).map_err(|e| format!("cannot open file: {e}"))?;
-        let mut archive =
-            zip::ZipArchive::new(file).map_err(|e| format!("not a valid zip: {e}"))?;
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-            let name = entry.mangled_name();
-            // Only extract .apk files (skip OBB, manifest, icon, etc.)
-            if name.extension().and_then(|e| e.to_str()) != Some("apk") {
-                continue;
-            }
-            // Flatten to temp root — no subdirectory traversal
-            let filename = name.file_name().unwrap_or(name.as_os_str());
-            let dest = tmp_clone.join(filename);
-            let mut out =
-                std::fs::File::create(&dest).map_err(|e| format!("cannot write {dest:?}: {e}"))?;
-            std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-
-    // ── 2. Collect extracted APKs ─────────────────────────────────────────────
-    let apk_paths: Vec<String> = std::fs::read_dir(&tmp)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("apk"))
-        .map(|e| e.path().to_string_lossy().to_string())
-        .collect();
-
-    if apk_paths.is_empty() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err("No APK files found inside the archive".to_string());
-    }
-
-    let _ = app.emit(
-        "xapk:progress",
-        serde_json::json!({
-            "stage": "installing",
-            "msg": format!("Installing {} APK(s)…", apk_paths.len()),
-            "count": apk_paths.len(),
-        }),
-    );
-
-    // ── 3. Install: install-multiple for splits, install for single ───────────
-    let output = if apk_paths.len() > 1 {
-        let mut args = vec![
-            "-s".to_string(),
-            serial.clone(),
-            "install-multiple".to_string(),
-            "-r".to_string(),
-        ];
-        args.extend(apk_paths.iter().cloned());
-        app.shell()
-            .sidecar("adb")
-            .map_err(|e| e.to_string())?
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| e.to_string())?
-    } else {
-        app.shell()
-            .sidecar("adb")
-            .map_err(|e| e.to_string())?
-            .args(["-s", &serial, "install", "-r", &apk_paths[0]])
-            .output()
-            .await
-            .map_err(|e| e.to_string())?
-    };
-
-    // ── 4. Clean up temp dir ──────────────────────────────────────────────────
-    let _ = std::fs::remove_dir_all(&tmp);
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let ok = output.status.success() || stdout.contains("Success");
-
-    let _ = app.emit(
-        "xapk:progress",
-        serde_json::json!({
-            "stage": if ok { "done" } else { "error" },
-            "msg": if ok { "Installation complete" } else { stderr.trim() },
-        }),
-    );
-
-    Ok(serde_json::json!({ "ok": ok, "stdout": stdout, "stderr": stderr, "apks": apk_paths.len() }))
+    app_packages::install_path(&app, &serial, &path).await
 }
 
 #[tauri::command]
@@ -2262,6 +1649,9 @@ pub fn run() {
             run_fastboot,
             capture_screen_frame,
             install_from_url,
+            download_app_package,
+            resolve_store_download,
+            install_app_package,
             search_apks,
             fetch_github_picks,
             refresh_fdroid_index,
